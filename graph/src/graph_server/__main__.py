@@ -1,4 +1,4 @@
-from src.graph_server import mcp
+from graph_server import mcp
 
 def main():
     # Initialize and run the server

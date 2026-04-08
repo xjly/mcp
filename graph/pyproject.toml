@@ -22,4 +22,4 @@ build-backend = "hatchling.build"
 
 [tool.hatchling]
 package-dir = "src"
-packages = ["graph_server"]
+packages = ["graph_server", "graph"]

@@ -5,7 +5,7 @@
       "args": [
         "--from",
         "git+https://github.com/xjly/mcp#subdirectory=graph",
-        "graph"
+        "neo4j-mcp"
       ],
       "env": {
         "NEO4J_URI": "bolt://114.66.47.144:7687",
