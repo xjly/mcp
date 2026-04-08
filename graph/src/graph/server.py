@@ -8,7 +8,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from graph.neo4j_repository import Neo4jGraphRepository
+from graph.repository import Neo4jGraphRepository
 
 # =============================================================================
 # === MCP 服务器定义 ===

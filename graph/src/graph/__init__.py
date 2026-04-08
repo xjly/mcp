@@ -1,3 +1,6 @@
-from .neo4j_repository import Neo4jGraphRepository
+"""Neo4j Graph Server MCP Package"""
 
-__all__ = ["Neo4jGraphRepository"]
+from graph.repository import Neo4jGraphRepository
+from graph.server import mcp, main
+
+__all__ = ["Neo4jGraphRepository", "mcp", "main"]

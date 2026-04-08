@@ -11,7 +11,7 @@ dependencies = [
 ]
 
 [project.scripts]
-neo4j-mcp = "graph_server.server:main"
+neo4j-mcp = "graph.server:main"
 
 [tool.uv]
 package = true
@@ -22,4 +22,4 @@ build-backend = "hatchling.build"
 
 [tool.hatchling]
 package-dir = "src"
-packages = ["graph_server", "graph"]
+packages = ["graph"]
