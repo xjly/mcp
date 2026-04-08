@@ -3,13 +3,12 @@
 提供 Neo4j 图数据库的只读查询能力
 """
 
-import argparse
 import json
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from src.graph.neo4j_repository import Neo4jGraphRepository
+from graph.neo4j_repository import Neo4jGraphRepository
 
 # =============================================================================
 # === MCP 服务器定义 ===
@@ -406,27 +405,6 @@ async def execute_read_cypher(
 # =============================================================================
 
 
-async def main():
+def main():
     """主入口函数"""
-    parser = argparse.ArgumentParser(description="Neo4j MCP Server")
-    parser.add_argument(
-        "--transport",
-        choices=["stdio", "http"],
-        default="stdio",
-        help="Transport mode",
-    )
-    parser.add_argument("--port", type=int, default=8765, help="HTTP server port")
-    parser.add_argument("--host", default="0.0.0.0", help="HTTP server host")
-    args = parser.parse_args()
-
-    if args.transport == "http":
-        import uvicorn
-
-        app = mcp.streamable_http_app()
-        config = uvicorn.Config(
-            app, host=args.host, port=args.port, log_level="info"
-        )
-        server = uvicorn.Server(config)
-        await server.serve()
-    else:
-        await mcp.run_stdio_async()
+    mcp.run()

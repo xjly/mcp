@@ -2,7 +2,6 @@
 name = "graph"
 version = "0.1.0"
 description = "Neo4j MCP Server - 图数据库查询服务"
-readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.28.1",
@@ -12,4 +11,15 @@ dependencies = [
 ]
 
 [project.scripts]
-neo4j-mcp = "src.graph_server.server:main"
+neo4j-mcp = "graph_server.server:main"
+
+[tool.uv]
+package = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatchling]
+package-dir = "src"
+packages = ["graph_server"]
