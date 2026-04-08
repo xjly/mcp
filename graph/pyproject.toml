@@ -1,0 +1,15 @@
+[project]
+name = "graph"
+version = "0.1.0"
+description = "Neo4j MCP Server - 图数据库查询服务"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28.1",
+    "mcp[cli]>=1.27.0",
+    "neo4j>=5.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+neo4j-mcp = "src.graph_server.server:main"
