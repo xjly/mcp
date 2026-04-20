@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "reporter": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/xjly/mcp#subdirectory=reporter",
+        "reporter-mcp"
+      ],
+      "env": {
+        "DATABASE_URL": "your_database_url_here"
+      }
+    }
+  }
+}
