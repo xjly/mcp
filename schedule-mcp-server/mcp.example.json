@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "schedule": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "/path/to/schedule-mcp-server",
+        "schedule-mcp"
+      ],
+      "env": {
+        "PUSH_SERVICE_URL": "http://localhost:8080/api/push",
+        "PUSH_TIMEOUT": "30",
+        "SCHEDULER_TIMEZONE": "Asia/Shanghai",
+        "JOB_STORE_TYPE": "sqlite",
+        "SQLITE_DB_PATH": "./jobs.sqlite"
+      }
+    }
+  }
+}
