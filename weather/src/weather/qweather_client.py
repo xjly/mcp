@@ -91,6 +91,23 @@ def _normalize_history_date(date: str | None) -> str:
     raise ValueError("date must be in YYYYMMDD or YYYY-MM-DD format")
 
 
+def _coerce_weather_items(value: Any, nested_key: str) -> list[dict[str, Any]]:
+    """
+    @description 将历史接口中形态不稳定的数据字段统一折叠成列表。
+    @reason 实际返回中，`weatherDaily/weatherHourly` 既可能直接是列表，也可能是对象
+    （如 `{"daily": [...]}` 或 `{"hourly": [...]}`）。若直接对对象切片会触发
+    `slice(...)` 异常，工具层会以执行错误暴露给用户。此处统一“容错解包”为列表，
+    可以把不同套餐/版本的响应差异吸收到客户端内部。
+    """
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    if isinstance(value, dict):
+        nested = value.get(nested_key)
+        if isinstance(nested, list):
+            return [item for item in nested if isinstance(item, dict)]
+    return []
+
+
 class QWeatherClient:
     """QWeather API client."""
 
@@ -238,19 +255,21 @@ class QWeatherClient:
         # QWeather historical payload naming may vary by package/version.
         # Try multiple known keys and normalize uniformly.
         if granularity == "hourly":
-            raw_items = (
+            raw_items = _coerce_weather_items(
                 payload.get("weatherHourly")
                 or payload.get("hourly")
                 or payload.get("data")
-                or []
+                or [],
+                nested_key="hourly",
             )
             items = [_normalize_hourly_item(item) for item in raw_items[:window_value]]
         else:
-            raw_items = (
+            raw_items = _coerce_weather_items(
                 payload.get("weatherDaily")
                 or payload.get("daily")
                 or payload.get("data")
-                or []
+                or [],
+                nested_key="daily",
             )
             items = [_normalize_daily_item(item) for item in raw_items[:window_value]]
 

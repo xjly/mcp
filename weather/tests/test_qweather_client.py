@@ -105,3 +105,37 @@ def test_get_weather_history_passes_date_param(monkeypatch):
         "type": "hourly",
         "date": "20260423",
     }
+
+
+def test_get_weather_history_daily_payload_object_is_handled(monkeypatch):
+    client = QWeatherClient(
+        QWeatherConfig(api_key="k", base_url="https://x", timeout_seconds=10)
+    )
+
+    def _fake_request_json(path: str, params: dict):
+        assert path == "/v7/historical/weather"
+        return {
+            "code": "200",
+            "weatherDaily": {
+                "daily": [
+                    {
+                        "fxDate": "2026-04-22",
+                        "precip": "0.2",
+                        "windSpeedDay": "10",
+                        "windDirDay": "东北风",
+                        "humidity": "66",
+                        "tempMax": "28",
+                    }
+                ]
+            },
+        }
+
+    monkeypatch.setattr(client, "_request_json", _fake_request_json)
+    result = client.get_weather_history(
+        location_id="101280101",
+        granularity="daily",
+        days=1,
+        date="20260422",
+    )
+    assert result["count"] == 1
+    assert result["items"][0]["time"] == "2026-04-22"
