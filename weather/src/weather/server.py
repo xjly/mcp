@@ -19,12 +19,14 @@ mcp = FastMCP(
 - `search_location_id_by_name`: 通过城市名/区名查询候选 location_id
 - `get_weather_forecast`: 查询未来天气（hourly/daily）
 - `get_weather_history`: 查询历史天气（hourly/daily）
+- `get_minutely_precipitation`: 查询分钟级降水预报（基于 lon/lat）
 
 ### 参数约束
 - 主查询参数使用 `location_id`
 - 粒度仅支持：`hourly`、`daily`
 - `hours` 范围：1~168
 - `days` 范围：1~30
+- 分钟级工具参数：`lon`、`lat`，可选 `minutes`（5~120，按 5 分钟步长截取）
 """,
 )
 
@@ -150,6 +152,27 @@ async def get_weather_history(
         )
     except ValueError as exc:
         return json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2)
+    return json.dumps(_safe_result(result), ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def get_minutely_precipitation(
+    lon: float,
+    lat: float,
+    minutes: int | None = None,
+) -> str:
+    """
+    查询分钟级降水预报（基于经纬度）。
+
+    Args:
+        lon: 经度
+        lat: 纬度
+        minutes: 可选返回分钟窗口，客户端会按 5~120 范围与 5 分钟步长做安全截取
+
+    Returns:
+        JSON 字符串，包含分钟级降水预报数据
+    """
+    result = get_client().get_minutely_precipitation(lon=lon, lat=lat, minutes=minutes)
     return json.dumps(_safe_result(result), ensure_ascii=False, indent=2)
 
 

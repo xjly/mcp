@@ -9,7 +9,7 @@
       ],
       "env": {
         "QWEATHER_API_KEY": "your_api_key",
-        "QWEATHER_BASE_URL": "https://devapi.qweather.com",
+        "QWEATHER_BASE_URL": "https://<your-host>.re.qweatherapi.com",
         "QWEATHER_TIMEOUT_SECONDS": "30"
       }
     }

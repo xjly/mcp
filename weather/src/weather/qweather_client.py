@@ -61,6 +61,20 @@ def _normalize_daily_item(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _normalize_minutely_item(item: dict[str, Any]) -> dict[str, Any]:
+    """
+    @description 将分钟级降水条目转换为统一输出结构。
+    @reason 分钟级接口在不同套餐与版本下字段可能有细微差异，统一字段可保证
+    上游只关注 `time/precip_mm/type`，并支持按 minutes 进行稳定截取。
+    """
+    return {
+        "time": item.get("fxTime") or item.get("time"),
+        "precip_mm": _to_float(item.get("precip")),
+        "type": item.get("type"),
+        "raw": item,
+    }
+
+
 class QWeatherClient:
     """QWeather API client."""
 
@@ -222,6 +236,37 @@ class QWeatherClient:
             "granularity": granularity,
             "window": {"unit": "hours" if granularity == "hourly" else "days", "value": window_value},
             "count": len(items),
+            "source": "qweather",
+            "request_time": datetime.now(timezone.utc).isoformat(),
+            "items": items,
+        }
+
+    def get_minutely_precipitation(
+        self,
+        lon: float,
+        lat: float,
+        minutes: int | None = None,
+    ) -> dict[str, Any]:
+        """Get minutely precipitation nowcast data by longitude/latitude."""
+        payload = self._request_json("/v7/minutely/5m", {"location": f"{lon},{lat}"})
+        if "error" in payload:
+            return payload
+
+        raw_items = payload.get("minutely", []) or payload.get("data", []) or []
+        items = [_normalize_minutely_item(item) for item in raw_items]
+
+        if minutes is not None:
+            safe_minutes = max(5, min(minutes, 120))
+            keep_count = max(1, safe_minutes // 5)
+            items = items[:keep_count]
+        else:
+            safe_minutes = None
+
+        return {
+            "location": {"lon": lon, "lat": lat},
+            "minutes": safe_minutes,
+            "count": len(items),
+            "summary": payload.get("summary"),
             "source": "qweather",
             "request_time": datetime.now(timezone.utc).isoformat(),
             "items": items,
