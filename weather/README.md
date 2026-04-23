@@ -8,6 +8,7 @@
 - `get_weather_forecast`：按 `location_id` 查询未来天气（`hourly` / `daily`）
 - `get_weather_history`：按 `location_id` 查询历史天气（`hourly` / `daily`，支持 `date`）
 - `get_minutely_precipitation`：按经纬度查询分钟级降水预报（5 分钟步长）
+- `get_weather_alert_current`：按经纬度查询实时天气预警（仅返回 `alerts` 原始列表）
 
 ## 环境变量
 
@@ -50,6 +51,7 @@ uv run python -m weather.server
 1. 先调用 `search_location_id_by_name` 获取候选 `location_id`
 2. 调用 `get_weather_forecast` 或 `get_weather_history` 查询按小时/按天数据
 3. 需要临近降水时，调用 `get_minutely_precipitation`
+4. 需要灾害/大风等预警时，调用 `get_weather_alert_current`
 
 历史天气建议显式传入 `date`（`YYYYMMDD` 或 `YYYY-MM-DD`），例如：
 
@@ -74,6 +76,20 @@ uv run python -m weather.server
     "lon": 120.31189,
     "lat": 31.49106,
     "minutes": 30
+  }
+}
+```
+
+## 实时天气预警工具示例
+
+```json
+{
+  "name": "get_weather_alert_current",
+  "arguments": {
+    "lon": 116.40,
+    "lat": 39.90,
+    "lang": "zh",
+    "local_time": true
   }
 }
 ```

@@ -139,3 +139,30 @@ def test_get_weather_history_daily_payload_object_is_handled(monkeypatch):
     )
     assert result["count"] == 1
     assert result["items"][0]["time"] == "2026-04-22"
+
+
+def test_get_weather_alert_current_returns_raw_alerts_and_query_params(monkeypatch):
+    client = QWeatherClient(
+        QWeatherConfig(api_key="k", base_url="https://x", timeout_seconds=10)
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_request_json(path: str, params: dict):
+        captured["path"] = path
+        captured["params"] = params
+        return {
+            "code": "200",
+            "metadata": {"tag": "x"},
+            "alerts": [{"id": "a1", "headline": "大风蓝色预警"}],
+        }
+
+    monkeypatch.setattr(client, "_request_json", _fake_request_json)
+    result = client.get_weather_alert_current(
+        lon=116.40,
+        lat=39.90,
+        lang="zh",
+        local_time=True,
+    )
+    assert captured["path"] == "/weatheralert/v1/current/39.9/116.4"
+    assert captured["params"] == {"lang": "zh", "localTime": "true"}
+    assert result == [{"id": "a1", "headline": "大风蓝色预警"}]

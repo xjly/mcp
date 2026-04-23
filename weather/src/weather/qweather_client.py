@@ -314,3 +314,28 @@ class QWeatherClient:
             "request_time": datetime.now(timezone.utc).isoformat(),
             "items": items,
         }
+
+    def get_weather_alert_current(
+        self,
+        lon: float,
+        lat: float,
+        lang: str | None = None,
+        local_time: bool | None = None,
+    ) -> list[dict[str, Any]] | dict[str, Any]:
+        """
+        @description 查询实时天气预警并返回 alerts 原始列表。
+        @reason 该工具按需求要求“完整保留预警条目原文”，因此不做字段重命名或结构裁剪，
+        仅在工具层做参数透传与错误兜底，保证上游格式可被下游稳定复用。
+        """
+        query: dict[str, Any] = {}
+        if lang:
+            query["lang"] = lang
+        if local_time is not None:
+            query["localTime"] = "true" if local_time else "false"
+
+        payload = self._request_json(f"/weatheralert/v1/current/{lat}/{lon}", query)
+        if "error" in payload:
+            return payload
+
+        alerts = payload.get("alerts", [])
+        return alerts if isinstance(alerts, list) else []

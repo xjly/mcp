@@ -6,3 +6,4 @@ def test_tool_functions_exist():
     assert hasattr(server, "get_weather_forecast")
     assert hasattr(server, "get_weather_history")
     assert hasattr(server, "get_minutely_precipitation")
+    assert hasattr(server, "get_weather_alert_current")

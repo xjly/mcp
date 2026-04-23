@@ -20,6 +20,7 @@ mcp = FastMCP(
 - `get_weather_forecast`: 查询未来天气（hourly/daily）
 - `get_weather_history`: 查询历史天气（hourly/daily）
 - `get_minutely_precipitation`: 查询分钟级降水预报（基于 lon/lat）
+- `get_weather_alert_current`: 查询实时天气预警（仅返回 alerts 原始列表）
 
 ### 参数约束
 - 主查询参数使用 `location_id`
@@ -27,6 +28,7 @@ mcp = FastMCP(
 - `hours` 范围：1~168
 - `days` 范围：1~30
 - 分钟级工具参数：`lon`、`lat`，可选 `minutes`（5~120，按 5 分钟步长截取）
+- 预警工具参数：`lon`、`lat`，可选 `lang`、`local_time`
 """,
 )
 
@@ -176,6 +178,34 @@ async def get_minutely_precipitation(
         JSON 字符串，包含分钟级降水预报数据
     """
     result = get_client().get_minutely_precipitation(lon=lon, lat=lat, minutes=minutes)
+    return json.dumps(_safe_result(result), ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def get_weather_alert_current(
+    lon: float,
+    lat: float,
+    lang: str | None = None,
+    local_time: bool | None = None,
+) -> str:
+    """
+    查询实时天气预警（仅返回 alerts 原始列表）。
+
+    Args:
+        lon: 经度
+        lat: 纬度
+        lang: 可选语言参数（透传上游）
+        local_time: 可选是否返回本地时间（透传为 localTime）
+
+    Returns:
+        JSON 字符串，成功时为 alerts 列表，失败时为错误对象
+    """
+    result = get_client().get_weather_alert_current(
+        lon=lon,
+        lat=lat,
+        lang=lang,
+        local_time=local_time,
+    )
     return json.dumps(_safe_result(result), ensure_ascii=False, indent=2)
 
 
