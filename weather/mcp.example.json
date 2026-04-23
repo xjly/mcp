@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "weather": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/xjly/mcp#subdirectory=weather",
+        "weather-mcp"
+      ],
+      "env": {
+        "QWEATHER_API_KEY": "your_api_key",
+        "QWEATHER_BASE_URL": "https://devapi.qweather.com",
+        "QWEATHER_TIMEOUT_SECONDS": "30"
+      }
+    }
+  }
+}
