@@ -76,3 +76,32 @@ def test_get_minutely_precipitation_slice_minutes(monkeypatch):
     result = client.get_minutely_precipitation(lon=120.31189, lat=31.49106, minutes=30)
     assert result["count"] == 6
     assert result["minutes"] == 30
+
+
+def test_get_weather_history_passes_date_param(monkeypatch):
+    client = QWeatherClient(
+        QWeatherConfig(api_key="k", base_url="https://x", timeout_seconds=10)
+    )
+
+    captured: dict[str, object] = {}
+
+    def _fake_request_json(path: str, params: dict):
+        captured["path"] = path
+        captured["params"] = params
+        return {"code": "200", "weatherHourly": []}
+
+    monkeypatch.setattr(client, "_request_json", _fake_request_json)
+    result = client.get_weather_history(
+        location_id="101190401",
+        granularity="hourly",
+        hours=24,
+        date="20260423",
+    )
+
+    assert result["granularity"] == "hourly"
+    assert captured["path"] == "/v7/historical/weather"
+    assert captured["params"] == {
+        "location": "101190401",
+        "type": "hourly",
+        "date": "20260423",
+    }

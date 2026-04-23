@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -73,6 +73,22 @@ def _normalize_minutely_item(item: dict[str, Any]) -> dict[str, Any]:
         "type": item.get("type"),
         "raw": item,
     }
+
+
+def _normalize_history_date(date: str | None) -> str:
+    """
+    @description 规范化历史天气查询日期为和风接口可接受的 `YYYYMMDD`。
+    @reason 上游输入可能来自自然语言或不同客户端，常见格式既有 `YYYYMMDD` 也有
+    `YYYY-MM-DD`。统一到单一格式可避免把格式差异变成接口 400，提升工具稳定性。
+    """
+    if date is None or not date.strip():
+        # 历史查询默认取昨天，避免默认查询未来日期导致接口直接拒绝。
+        return (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y%m%d")
+
+    compact = date.strip().replace("-", "")
+    if len(compact) == 8 and compact.isdigit():
+        return compact
+    raise ValueError("date must be in YYYYMMDD or YYYY-MM-DD format")
 
 
 class QWeatherClient:
@@ -197,6 +213,7 @@ class QWeatherClient:
         granularity: str = "hourly",
         hours: int = 24,
         days: int = 7,
+        date: str | None = None,
     ) -> dict[str, Any]:
         """Get historical weather data by location_id."""
         self._validate_granularity(granularity)
@@ -205,9 +222,15 @@ class QWeatherClient:
         else:
             window_value = max(1, min(days, 30))
 
+        normalized_date = _normalize_history_date(date)
+
         payload = self._request_json(
             "/v7/historical/weather",
-            {"location": location_id, "type": granularity},
+            {
+                "location": location_id,
+                "type": granularity,
+                "date": normalized_date,
+            },
         )
         if "error" in payload:
             return payload
@@ -234,6 +257,7 @@ class QWeatherClient:
         return {
             "location_id": location_id,
             "granularity": granularity,
+            "date": normalized_date,
             "window": {"unit": "hours" if granularity == "hourly" else "days", "value": window_value},
             "count": len(items),
             "source": "qweather",

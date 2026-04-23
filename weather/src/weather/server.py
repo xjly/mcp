@@ -123,6 +123,7 @@ async def get_weather_history(
     granularity: str = "hourly",
     hours: int = 24,
     days: int = 7,
+    date: str | None = None,
 ) -> str:
     """
     查询历史天气数据（小时级或天级）。
@@ -132,6 +133,7 @@ async def get_weather_history(
         granularity: 粒度，hourly 或 daily
         hours: granularity=hourly 时窗口大小（1~168）
         days: granularity=daily 时窗口大小（1~30）
+        date: 历史日期，支持 YYYYMMDD 或 YYYY-MM-DD；为空时默认昨天
 
     Returns:
         JSON 字符串，包含标准化后的历史天气数据
@@ -149,6 +151,7 @@ async def get_weather_history(
             granularity=granularity,
             hours=hours,
             days=days,
+            date=date,
         )
     except ValueError as exc:
         return json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2)
