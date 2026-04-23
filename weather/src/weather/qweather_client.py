@@ -94,7 +94,7 @@ class QWeatherClient:
                 "Upstream HTTP request failed",
                 status_code=response.status_code,
                 api_code=payload.get("code"),
-                message=payload.get("msg"),
+                upstream_message=payload.get("msg"),
             )
 
         if payload.get("code") != "200":
@@ -102,7 +102,7 @@ class QWeatherClient:
                 "QWeather business error",
                 status_code=response.status_code,
                 api_code=payload.get("code"),
-                message=payload.get("msg"),
+                upstream_message=payload.get("msg"),
             )
 
         return payload
