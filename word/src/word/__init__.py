@@ -1,0 +1,1 @@
+"""Word Polish MCP Server - 文字润色服务"""

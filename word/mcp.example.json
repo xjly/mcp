@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "word-polish": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/xjly/mcp#subdirectory=word",
+        "word-mcp"
+      ],
+      "env": {
+        "POLISH_API_KEY": "你的硅基流动API密钥",
+        "POLISH_BASE_URL": "https://api.siliconflow.cn/v1",
+        "POLISH_TIMEOUT_SECONDS": "60",
+        "POLISH_MODEL": "deepseek-ai/DeepSeek-V3"
+      }
+    }
+  }
+}
