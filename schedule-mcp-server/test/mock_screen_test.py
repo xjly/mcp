@@ -8,7 +8,8 @@ import sys
 import sqlite3
 import os
 
-DB_FILE = "push_records.db"
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_FILE = os.path.join(CURRENT_DIR, "push_records.db")
 
 def init_database():
     """初始化数据库"""
@@ -96,103 +97,111 @@ init_database()
 class PushHandler(BaseHTTPRequestHandler):
     
     def do_POST(self):
-        if self.path.startswith('/api/push/'):
-            screen_id = self.path.replace('/api/push/', '')
-            
-            content_length = int(self.headers.get('Content-Length', 0))
-            if content_length == 0:
-                self.send_response(400)
+        try:
+            if self.path.startswith('/api/push/'):
+                screen_id = self.path.replace('/api/push/', '')
+                
+                content_length = int(self.headers.get('Content-Length', 0))
+                if content_length == 0:
+                    self.send_response(400)
+                    self.end_headers()
+                    return
+                    
+                post_data = self.rfile.read(content_length)
+                
+                try:
+                    data = json.loads(post_data.decode('utf-8'))
+                    
+                    record = {
+                        "screen_id": screen_id,
+                        "content": data.get('content', ''),
+                        "title": data.get('title', ''),
+                        "timestamp": datetime.now().isoformat(),
+                        "received_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    }
+                    
+                    record_id = save_record(record)
+                    
+                    print(f"\n 收到推送请求")
+                    print(f"   目标大屏: {screen_id}")
+                    print(f"   标题: {record['title']}")
+                    print(f"   内容预览: {record['content'][:100]}...")
+                    print(f"   时间: {record['received_at']}")
+                    print(f"   记录ID: {record_id}")
+                    
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    
+                    response = {
+                        "status": "success",
+                        "message": f"内容已推送到大屏 {screen_id}",
+                        "record_id": record_id
+                    }
+                    self.wfile.write(json.dumps(response).encode())
+                    
+                except Exception as e:
+                    print(f" 处理推送失败: {e}")
+                    self.send_response(500)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    response = {"status": "error", "message": str(e)}
+                    self.wfile.write(json.dumps(response).encode())
+            else:
+                self.send_response(404)
                 self.end_headers()
-                return
-                
-            post_data = self.rfile.read(content_length)
+        except (ConnectionAbortedError, BrokenPipeError):
+            # 客户端断开连接，忽略
+            pass
+    
+    def do_GET(self):
+        try:
+            parsed_path = urllib.parse.urlparse(self.path)
             
-            try:
-                data = json.loads(post_data.decode('utf-8'))
+            if parsed_path.path == '/api/records':
+                query = urllib.parse.parse_qs(parsed_path.query)
+                limit = int(query.get('limit', [100])[0])
+                screen_id = query.get('screen_id', [None])[0]
                 
-                record = {
-                    "screen_id": screen_id,
-                    "content": data.get('content', ''),
-                    "title": data.get('title', ''),
-                    "timestamp": datetime.now().isoformat(),
-                    "received_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                }
-                
-                record_id = save_record(record)
-                
-                print(f"\n📺 收到推送请求")
-                print(f"   目标大屏: {screen_id}")
-                print(f"   标题: {record['title']}")
-                print(f"   内容预览: {record['content'][:100]}...")
-                print(f"   时间: {record['received_at']}")
-                print(f"   记录ID: {record_id}")
+                total, records = get_records(limit, screen_id)
                 
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
                 
                 response = {
-                    "status": "success",
-                    "message": f"内容已推送到大屏 {screen_id}",
-                    "record_id": record_id
+                    "total": total,
+                    "records": records
                 }
-                self.wfile.write(json.dumps(response).encode())
+                self.wfile.write(json.dumps(response, indent=2, ensure_ascii=False).encode())
                 
-            except Exception as e:
-                print(f"❌ 处理推送失败: {e}")
-                self.send_response(500)
+            elif parsed_path.path == '/api/clear':
+                count = clear_records()
+                self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
-                response = {"status": "error", "message": str(e)}
+                response = {"status": "success", "message": f"已清空 {count} 条记录"}
                 self.wfile.write(json.dumps(response).encode())
-        else:
-            self.send_response(404)
-            self.end_headers()
-    
-    def do_GET(self):
-        parsed_path = urllib.parse.urlparse(self.path)
-        
-        if parsed_path.path == '/api/records':
-            query = urllib.parse.parse_qs(parsed_path.query)
-            limit = int(query.get('limit', [100])[0])
-            screen_id = query.get('screen_id', [None])[0]
-            
-            total, records = get_records(limit, screen_id)
-            
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            
-            response = {
-                "total": total,
-                "records": records
-            }
-            self.wfile.write(json.dumps(response, indent=2, ensure_ascii=False).encode())
-            
-        elif parsed_path.path == '/api/clear':
-            count = clear_records()
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            response = {"status": "success", "message": f"已清空 {count} 条记录"}
-            self.wfile.write(json.dumps(response).encode())
-            
-        elif parsed_path.path == '/health':
-            total, _ = get_records(1)
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            
-            response = {
-                "status": "ok",
-                "timestamp": datetime.now().isoformat(),
-                "total_pushes": total,
-                "database": DB_FILE
-            }
-            self.wfile.write(json.dumps(response).encode())
-        else:
-            self.send_response(404)
-            self.end_headers()
+                
+            elif parsed_path.path == '/health':
+                total, _ = get_records(1)
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                
+                response = {
+                    "status": "ok",
+                    "timestamp": datetime.now().isoformat(),
+                    "total_pushes": total,
+                    "database": DB_FILE
+                }
+                self.wfile.write(json.dumps(response).encode())
+            else:
+                self.send_response(404)
+                self.end_headers()
+        except (ConnectionAbortedError, BrokenPipeError):
+            # 客户端断开连接，忽略
+            pass
     
     def log_message(self, format, *args):
         pass
@@ -202,7 +211,7 @@ def run_server(port=8080):
     httpd = HTTPServer(server_address, PushHandler)
     
     def signal_handler(signum, frame):
-        print("\n\n👋 服务已停止")
+        print("\n\n 服务已停止")
         httpd.shutdown()
         sys.exit(0)
     
@@ -210,22 +219,22 @@ def run_server(port=8080):
     
     total, _ = get_records(1)
     print("=" * 60)
-    print("📺 模拟大屏推送服务启动 (SQLite持久化)")
+    print(" 模拟大屏推送服务启动 (SQLite持久化)")
     print("=" * 60)
     print(f"推送接口: http://localhost:{port}/api/push/{{screen_id}}")
     print(f"查看记录: http://localhost:{port}/api/records")
     print(f"清空记录: http://localhost:{port}/api/clear")
     print(f"健康检查: http://localhost:{port}/health")
     print("=" * 60)
-    print(f"\n💾 数据库文件: {DB_FILE}")
-    print(f"📊 历史记录: {total} 条")
-    print("\n💡 提示: 重启服务后记录不会丢失！\n")
+    print(f"\n 数据库文件: {DB_FILE}")
+    print(f" 历史记录: {total} 条")
+    print("\n 提示: 重启服务后记录不会丢失！\n")
     print("等待接收推送...\n")
     
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\n\n👋 服务已停止")
+        print("\n\n 服务已停止")
         httpd.shutdown()
 
 if __name__ == '__main__':

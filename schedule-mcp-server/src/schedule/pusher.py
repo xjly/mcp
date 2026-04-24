@@ -1,13 +1,10 @@
 """Push Service - 推送服务层"""
 
 import os
-import json
 import httpx
 from datetime import datetime
 from typing import Optional
-from dotenv import load_dotenv
 
-load_dotenv()
 
 
 class PushService:
