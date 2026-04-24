@@ -1,0 +1,28 @@
+{
+  "mcpServers": {
+    "chart": {
+      "command": "uv",
+      "args": [
+        "--from",
+        "/path/to/chart-mcp-server",
+        "chart-mcp"
+      ],
+   "env": {
+        "MINIO_ENDPOINT": "114.66.47.144:9000",
+        "MINIO_ACCESS_KEY": "minioadmin",
+        "MINIO_SECRET_KEY": "minioadmin",
+        "MINIO_SECURE": "False",
+        "MINIO_KB_BUCKET": "kb-images",
+        "MINIO_CHAT_IMAGES_PATH": "chat-images",
+        "OCR_PROCESSOR": "deepseek_ocr",
+        "OCR_MODEL": "deepseek-ai/DeepSeek-OCR",
+        "LLM_API_URL": "https://api.siliconflow.cn/v1/chat/completions",
+        "LLM_MODEL_PROVIDER": "siliconflow",
+        "LLM_API_KEY": "sk-dutlwewtllevkhexfserymkxiwxjglhfvjjqpvagcegaabom",
+        "LLM_MODEL": "deepseek-ai/DeepSeek-V3",
+        "DEFAULT_BUCKET": "kb-images",
+        "DEFAULT_CHAT_IMAGES_PATH": "chat-images"
+      }
+    }
+  }
+}

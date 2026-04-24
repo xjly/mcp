@@ -1,0 +1,26 @@
+[project]
+name = "chart"
+version = "0.1.0"
+description = "Chart MCP Server - 图表理解和生成服务"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp[cli]>=1.27.0",
+    "httpx>=0.28.1",
+    "python-dotenv>=1.0.0",
+    "Pillow>=10.0.0",
+    "minio>=7.2.0",
+]
+
+[project.scripts]
+chart-mcp = "chart.server:main"
+
+[tool.uv]
+package = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatchling]
+package-dir = "src"
+packages = ["chart"]
