@@ -1,0 +1,16 @@
+# 会议纪要
+
+**会议名称**: {{ meeting_name }}
+**时间**: {{ date }}
+**地点**: {{ location }}
+
+## 参会人员
+{{ attendees | join(', ') }}
+
+## 会议议程
+{% for item in agenda %}
+- {{ item }}
+{% endfor %}
+
+## 会议结论
+{{ conclusion }}
