@@ -1,10 +1,10 @@
 {
   "mcpServers": {
     "chart": {
-      "command": "uv",
+      "command": "uvx",
       "args": [
         "--from",
-        "/path/to/chart-mcp-server",
+        "git+https://github.com/xjly/mcp#subdirectory=chart-mcp-server",
         "chart-mcp"
       ],
    "env": {
