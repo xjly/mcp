@@ -14,6 +14,24 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from croniter import croniter
 import arrow
 
+
+def _default_sqlite_db_path() -> str:
+    """Return a stable user-local path when SQLITE_DB_PATH is not configured."""
+    if os.name == "nt":
+        base_dir = os.getenv("LOCALAPPDATA") or os.path.join(
+            os.path.expanduser("~"),
+            "AppData",
+            "Local",
+        )
+    else:
+        base_dir = os.getenv("XDG_DATA_HOME") or os.path.join(
+            os.path.expanduser("~"),
+            ".local",
+            "share",
+        )
+    return os.path.join(base_dir, "schedule-mcp", "jobs.sqlite")
+
+
 @dataclass
 class ScheduledJob:
     """定时任务数据模型"""
@@ -76,16 +94,7 @@ class ScheduleService:
             db_path = os.getenv("SQLITE_DB_PATH")
         
             if not db_path:
-                # 方法2: 基于 __file__ 计算项目根目录
-                # __file__ = E:\...\src\schedule\scheduler.py
-                # 上两级 = E:\...\src
-                # 上三级 = E:\...\  (项目根目录)
-                current_file = os.path.abspath(__file__)
-                # 从 src/schedule/scheduler.py 向上找到项目根目录
-                src_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
-                # 再上一级就是项目根目录
-                project_root = os.path.dirname(src_dir) if os.path.basename(src_dir) == 'src' else src_dir
-                db_path = os.path.join(project_root, "jobs.sqlite")
+                db_path = _default_sqlite_db_path()
                 print(f"[_create_jobstores] 自动计算路径: {db_path}")
                 self._db_path = db_path  # ← 新增：保存数据库路径
         

@@ -29,6 +29,12 @@ git+https://github.com/xjly/mcp#subdirectory=schedule-mcp-server
 D:\mcp-data\schedule-mcp\jobs.sqlite
 ```
 
+如果 MCP 客户端没有传入 `SQLITE_DB_PATH`，服务会自动使用当前用户的本地数据目录，例如 Windows 下通常是：
+
+```text
+C:\Users\<你的用户名>\AppData\Local\schedule-mcp\jobs.sqlite
+```
+
 ## MCP 客户端配置
 
 在支持 MCP 的客户端中添加下面配置。这个仓库已经提供了同内容的 `mcp.json` 和 `mcp.example.json`。
@@ -213,7 +219,7 @@ uv run python test\mock_screen_test.py
 
 ### 任务列表为空
 
-检查 `SQLITE_DB_PATH` 是否指向一个真实可写的本机 `.sqlite` 文件。如果路径仍然是旧目录，MCP 服务会把任务写到另一份数据库里，或者启动时创建到你没注意的位置。
+检查 `SQLITE_DB_PATH` 是否指向一个真实可写的本机 `.sqlite` 文件。如果返回路径出现在 `uv\cache\archive-v0` 下面，说明你运行的是旧版本代码，或者 GitHub 上的 schedule-mcp-server 还没有更新到最新提交。
 
 ### 推送返回 502 或连接异常
 
