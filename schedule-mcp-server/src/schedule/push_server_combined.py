@@ -36,8 +36,9 @@ async def main():
     
     # 持续运行
     while True:
-        await asyncio.sleep(30)
+        await asyncio.sleep(5)
         svc._load_jobs_from_store()
+        svc._scheduler.wakeup()
         jobs = svc._scheduler.get_jobs()
         if jobs:
             for j in jobs:

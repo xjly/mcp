@@ -38,7 +38,23 @@ C:\Users\<你的用户名>\AppData\Local\schedule-mcp\jobs.sqlite
 ## MCP 客户端配置
 
 在支持 MCP 的客户端中添加下面配置。这个仓库已经提供了同内容的 `mcp.json` 和 `mcp.example.json`。
-
+```json
+{
+  "name": "schedule-mcp",
+  "transport": "stdio",
+  "command": "powershell",
+  "args": [
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-Command",
+    "$env:PUSH_SERVICE_URL='http://127.0.0.1:8080/api/push'; $env:PUSH_TIMEOUT='30'; $env:SCHEDULER_TIMEZONE='Asia/Shanghai'; $env:JOB_STORE_TYPE='sqlite'; $env:SQLITE_DB_PATH='D:\\02_Projects\\Source\\mcp\\schedule-mcp-server\\jobs.sqlite'; uvx --refresh --reinstall --from 'D:\\02_Projects\\Source\\mcp\\schedule-mcp-server' schedule-mcp"
+  ],
+  "description": "定时任务和大屏推送 MCP 服务",
+  "headers": {},
+  "tags": ["定时任务", "推送", "cron", "大屏"]
+}
+```
 ```json
 {
   "mcpServers": {
@@ -46,6 +62,7 @@ C:\Users\<你的用户名>\AppData\Local\schedule-mcp\jobs.sqlite
       "command": "uvx",
       "args": [
         "--refresh",
+        "--reinstall",
         "--from",
         "git+https://github.com/xjly/mcp#subdirectory=schedule-mcp-server",
         "schedule-mcp"
@@ -220,7 +237,7 @@ uv run python test\mock_screen_test.py
 
 ### 任务列表为空
 
-检查 `SQLITE_DB_PATH` 是否指向一个真实可写的本机 `.sqlite` 文件。如果返回路径出现在 `uv\cache\archive-v0` 下面，说明你运行的是旧版本代码，或者 GitHub 上的 schedule-mcp-server 还没有更新到最新提交。
+检查 `SQLITE_DB_PATH` 是否指向一个真实可写的本机 `.sqlite` 文件。如果返回路径出现在 `uv\cache\archive-v0` 下面，说明 MCP 客户端没有把环境变量传给子进程，或者运行的是旧版本代码。Yuxi 中可以使用 PowerShell 启动命令显式设置 `$env:SQLITE_DB_PATH`。
 
 ### 推送返回 502 或连接异常
 

@@ -15,6 +15,11 @@ from croniter import croniter
 import arrow
 
 
+def scheduler_heartbeat():
+    """Keep the scheduler event loop waking up without persisting this runtime job."""
+    print("[心跳] 调度器运行中")
+
+
 def _default_sqlite_db_path() -> str:
     """Return a stable user-local path when SQLITE_DB_PATH is not configured."""
     if os.name == "nt":
@@ -64,6 +69,7 @@ class ScheduleService:
         print(f"[ScheduleService] ========================================")
         # 根据配置选择任务存储方式
         jobstores = self._create_jobstores()
+        jobstores["runtime"] = MemoryJobStore()
         
         self._scheduler = AsyncIOScheduler(
             jobstores=jobstores,
@@ -183,10 +189,11 @@ class ScheduleService:
             # 添加心跳任务，保持调度器活跃
             try:
                 self._scheduler.add_job(
-                    lambda: print("[心跳] 调度器运行中"),
+                    scheduler_heartbeat,
                     trigger=CronTrigger.from_crontab('* * * * *'),
                     id='heartbeat',
                     name='心跳检测',
+                    jobstore='runtime',
                     replace_existing=True
                 )
             except:

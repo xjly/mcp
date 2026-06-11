@@ -4,6 +4,7 @@
       "command": "uvx",
       "args": [
         "--refresh",
+        "--reinstall",
         "--from",
         "git+https://github.com/xjly/mcp#subdirectory=schedule-mcp-server",
         "schedule-mcp"
