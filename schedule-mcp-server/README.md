@@ -45,6 +45,7 @@ C:\Users\<你的用户名>\AppData\Local\schedule-mcp\jobs.sqlite
     "schedule": {
       "command": "uvx",
       "args": [
+        "--refresh",
         "--from",
         "git+https://github.com/xjly/mcp#subdirectory=schedule-mcp-server",
         "schedule-mcp"
