@@ -4,7 +4,7 @@
       "command": "uvx",
       "args": [
         "--from",
-        "E:\\mcp-master\\mcp-master\\schedule-mcp-server",
+        "git+https://github.com/xjly/mcp#subdirectory=schedule-mcp-server",
         "schedule-mcp"
       ],
       "env": {
@@ -12,7 +12,7 @@
         "PUSH_TIMEOUT": "30",
         "SCHEDULER_TIMEZONE": "Asia/Shanghai",
         "JOB_STORE_TYPE": "sqlite",
-        "SQLITE_DB_PATH": "E:\\mcp-master\\mcp-master\\schedule-mcp-server\\jobs.sqlite"
+        "SQLITE_DB_PATH": "D:\\02_Projects\\Source\\mcp\\schedule-mcp-server\\jobs.sqlite"
       }
     }
   }

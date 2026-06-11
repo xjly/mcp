@@ -32,7 +32,7 @@ class PushService:
             推送结果字典
         """
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with httpx.AsyncClient(timeout=self._timeout, trust_env=False) as client:
                 response = await client.post(
                     f"{self._base_url}/{screen_id}",
                     json={

@@ -7,6 +7,7 @@ import signal
 import sys
 import sqlite3
 import os
+import threading
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(CURRENT_DIR, "push_records.db")
@@ -215,7 +216,8 @@ def run_server(port=8080):
         httpd.shutdown()
         sys.exit(0)
     
-    signal.signal(signal.SIGINT, signal_handler)
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGINT, signal_handler)
     
     total, _ = get_records(1)
     print("=" * 60)

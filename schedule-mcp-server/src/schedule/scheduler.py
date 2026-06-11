@@ -91,6 +91,7 @@ class ScheduleService:
         
             # 转换为绝对路径
             db_path = os.path.abspath(db_path)
+            self._db_path = db_path
             print(f"[_create_jobstores] 最终数据库路径: {db_path}")
 
             # 确保目录存在

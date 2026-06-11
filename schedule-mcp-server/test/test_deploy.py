@@ -3,9 +3,9 @@ import os
 import asyncio
 import json
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from schedule.scheduler import ScheduleService
+from schedule.scheduler import ScheduleService, reset_schedule_service
 from schedule.server import schedule_task
 
 async def test_deployment():
@@ -60,22 +60,34 @@ async def test_deployment():
     
     # 5. 测试持久化
     print("\n5. 测试持久化...")
+    persist_result = await schedule_task(
+        action="create",
+        cron_expression="*/15 * * * *",
+        content="## 持久化测试\n\n时间: {current_time}",
+        task_name="持久化测试任务",
+        push_target="default_screen"
+    )
+    persist_data = json.loads(persist_result)
+    persist_task_id = persist_data.get("task_id") if persist_data.get("status") == "success" else None
+
     service.shutdown()
+    reset_schedule_service()
     await asyncio.sleep(0.5)
-    
-    service2 = ScheduleService()
-    service2.start()
     
     result = await schedule_task(action="list")
     data2 = json.loads(result)
     print(f"   重启后任务数: {data2['total']}")
     
-    if data2['total'] == len(jobs):
+    restored = any(task["job_id"] == persist_task_id for task in data2["tasks"])
+    if persist_task_id and restored:
         print("   持久化测试: 通过")
     else:
         print("   持久化测试: 失败")
-    
-    service2.shutdown()
+
+    if persist_task_id:
+        await schedule_task(action="cancel", task_id=persist_task_id)
+
+    reset_schedule_service()
     
     print("\n" + "=" * 60)
     print("部署配置测试完成！")

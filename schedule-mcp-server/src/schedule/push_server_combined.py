@@ -4,7 +4,11 @@ import sys
 import os
 import threading
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+TEST_DIR = os.path.join(PROJECT_ROOT, 'test')
+for path in (PROJECT_ROOT, TEST_DIR):
+    if path not in sys.path:
+        sys.path.insert(0, path)
 
 from schedule.scheduler import ScheduleService
 

@@ -1,5 +1,5 @@
-"""Chart MCP Server - 图表理解和生成服务"""
+"""Chart MCP Server - chart understanding and generation tools."""
 
-from chart.server import mcp, main
+from chart.server import main, mcp
 
 __all__ = ["mcp", "main"]

@@ -4,7 +4,7 @@ import sys
 import os
 import httpx
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 async def test_connection():
     print("=" * 60)
@@ -14,7 +14,7 @@ async def test_connection():
     # 1. 测试推送服务是否可用
     print("\n1 测试推送服务健康状态...")
     try:
-        async with httpx.AsyncClient(timeout=5) as client:
+        async with httpx.AsyncClient(timeout=5, trust_env=False) as client:
             response = await client.get("http://localhost:8080/health")
             if response.status_code == 200:
                 print("    推送服务运行正常")
@@ -47,7 +47,7 @@ async def test_connection():
     
     # 3. 查看推送记录
     print("\n3 查看推送记录...")
-    async with httpx.AsyncClient(timeout=5) as client:
+    async with httpx.AsyncClient(timeout=5, trust_env=False) as client:
         response = await client.get("http://localhost:8080/api/records")
         records = response.json()
         print(f"    总推送次数: {records['total']}")

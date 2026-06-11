@@ -1,208 +1,196 @@
-"""图表服务 - 图表数据处理和生成"""
+"""Chart data parsing and MinIO URL helpers."""
 
 import json
-import re
-from typing import Any, Dict, List, Optional
 import os
+import re
+from typing import Any
+from urllib.parse import urlparse, urlunparse
 
-default_bucket = os.getenv("DEFAULT_BUCKET", "kb-images")
-default_chat_path = os.getenv("DEFAULT_CHAT_IMAGES_PATH", "chat-images")
+
+def _default_bucket() -> str:
+    return os.getenv("DEFAULT_BUCKET") or os.getenv("MINIO_KB_BUCKET") or "kb-images"
+
+
+def _default_chat_path() -> str:
+    return os.getenv("DEFAULT_CHAT_IMAGES_PATH") or os.getenv("MINIO_CHAT_IMAGES_PATH") or "chat-images"
+
 
 class ChartService:
-    """图表处理服务"""
-    
-    def infer_chart_type(self, data: List[Dict], preferred: Optional[str] = None, text: str = "") -> str:
-        """智能推断图表类型"""
+    """Chart processing service."""
+
+    def infer_chart_type(
+        self,
+        data: list[dict[str, Any]],
+        preferred: str | None = None,
+        text: str = "",
+    ) -> str:
+        """Infer a chart type when the caller does not provide one."""
         if preferred:
             return preferred
-        
+
         water_keywords = ["水位", "流量", "压力", "降雨", "level", "flow", "trend"]
-        is_water_data = any(k in text for k in water_keywords)
-        
-        if isinstance(data, list) and data:
-            first = data[0]
-            if isinstance(first, (int, float)):
-                return "histogram"
-            
-            if isinstance(first, dict):
-                if is_water_data:
-                    return "area"
-                if len(data) <= 7:
-                    return "pie"
-        
+        is_water_data = any(keyword in text for keyword in water_keywords)
+
+        if data:
+            if is_water_data:
+                return "area"
+            if len(data) <= 7:
+                return "pie"
+
         return "bar"
-    
+
     def build_chart_spec(
-        self, 
-        chart_type: str, 
-        title: str, 
-        data: List[Dict], 
-        threshold: Optional[float] = None
-    ) -> Dict[str, Any]:
-        """构建图表规格"""
+        self,
+        chart_type: str,
+        title: str,
+        data: list[dict[str, Any]],
+        threshold: float | None = None,
+    ) -> dict[str, Any]:
+        """Build the frontend chart specification."""
         if not data:
             raise ValueError("数据不能为空")
-        
-        # 处理数据格式
-        values = data
-        sample = values[0] if values else {}
-        fields = list(sample.keys()) if isinstance(sample, dict) else []
-        
-        x_field = next((k for k in ("time", "date", "name", "category", "label", "x") if k in fields), None)
-        y_field = next((k for k in ("level", "value", "amount", "count", "y") if k in fields), None)
-        
-        if not x_field and len(fields) > 0:
-            x_field = fields[0]
-        if not y_field and len(fields) > 1:
-            y_field = fields[1]
-        
-        x_field = x_field or "x"
-        y_field = y_field or "y"
-        
-        return {
+
+        sample = data[0]
+        fields = list(sample.keys())
+
+        x_field = next((key for key in ("time", "date", "name", "category", "label", "x") if key in fields), None)
+        y_field = next((key for key in ("level", "value", "amount", "count", "y") if key in fields), None)
+
+        chart_spec: dict[str, Any] = {
             "type": chart_type,
-            "title": title or "监测态势图",
-            "x_field": x_field,
-            "y_field": y_field,
-            "values": values,
-            "threshold": threshold or sample.get("threshold")
+            "title": title or "数据图表",
+            "x_field": x_field or "name",
+            "y_field": y_field or "value",
+            "values": data,
         }
-    
-    def parse_data_json(self, data_json: Any) -> List[Dict]:
-        """智能解析数据 JSON（完整版）"""
-        # 如果已经是列表
+        if threshold is not None:
+            chart_spec["threshold"] = threshold
+        elif "threshold" in sample:
+            chart_spec["threshold"] = sample["threshold"]
+
+        return chart_spec
+
+    def parse_data_json(self, data_json: Any) -> list[Any]:
+        """Parse flexible JSON-like data into a list."""
         if isinstance(data_json, list):
             return data_json
-        
-        # 如果是字典
+
         if isinstance(data_json, dict):
-            if "values" in data_json:
+            if "values" in data_json and isinstance(data_json["values"], list):
                 return data_json["values"]
-            return [{"name": k, "value": v} for k, v in data_json.items()]
-        
-        # 如果是字符串，尝试解析
+            return [{"name": key, "value": value} for key, value in data_json.items()]
+
         if isinstance(data_json, str):
             clean_str = data_json.strip().strip("'").strip('"')
-            
-            # 尝试直接解析
-            try:
-                result = json.loads(clean_str)
+            if clean_str.startswith("{{") and clean_str.endswith("}}"):
+                clean_str = clean_str[1:-1]
+
+            parsers = (
+                clean_str,
+                clean_str.replace("'", '"'),
+                re.sub(r'([{,])\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', clean_str),
+            )
+            for candidate in parsers:
+                try:
+                    result = json.loads(candidate)
+                except json.JSONDecodeError:
+                    continue
+
                 if isinstance(result, list):
                     return result
                 if isinstance(result, dict):
-                    if "values" in result:
+                    if "values" in result and isinstance(result["values"], list):
                         return result["values"]
-                    return [{"name": k, "value": v} for k, v in result.items()]
-            except json.JSONDecodeError:
-                pass
-            
-            # 修复单引号问题
-            try:
-                fixed_str = clean_str.replace("'", '"')
-                result = json.loads(fixed_str)
-                if isinstance(result, list):
-                    return result
-            except json.JSONDecodeError:
-                pass
-            
-            # 修复属性名缺少引号的问题
-            try:
-                fixed_str = re.sub(r'([{,])\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', clean_str)
-                result = json.loads(fixed_str)
-                if isinstance(result, list):
-                    return result
-            except json.JSONDecodeError:
-                pass
-            
-            # 从文本中提取数字
-            numbers = re.findall(r'(\d+(?:\.\d+)?)', clean_str)
+                    return [{"name": key, "value": value} for key, value in result.items()]
+
+            numbers = re.findall(r"(\d+(?:\.\d+)?)", clean_str)
             if numbers:
-                return [{"name": f"值{i+1}", "value": float(n)} for i, n in enumerate(numbers)]
-        
+                return [{"name": f"值{i + 1}", "value": float(number)} for i, number in enumerate(numbers)]
+
         raise ValueError(f"无法解析的数据格式: {data_json}")
-    
-    def normalize_data(self, data: List[Dict]) -> List[Dict]:
-        """标准化数据格式（完整版）"""
-        normalized = []
-        for i, item in enumerate(data):
+
+    def normalize_data(self, data: list[Any]) -> list[dict[str, Any]]:
+        """Normalize chart data into {name, value} items."""
+        normalized: list[dict[str, Any]] = []
+
+        for index, item in enumerate(data):
             if isinstance(item, dict):
-                name = None
-                value = None
-                
-                for key in ["name", "label", "category", "x", "季度", "月份", "时期"]:
-                    if key in item:
-                        name = item[key]
-                        break
-                
-                for key in ["value", "amount", "count", "y", "数值", "数量"]:
-                    if key in item:
-                        value = item[key]
-                        break
-                
+                name = self._first_present(item, ("name", "label", "category", "x", "季度", "月份", "日期"))
+                raw_value = self._first_present(item, ("value", "amount", "count", "y", "level", "数量", "数值"))
+
                 if name is None:
-                    name = f"项{i+1}"
-                if value is None:
-                    for v in item.values():
-                        if isinstance(v, (int, float)):
-                            value = v
-                            break
-                    if value is None:
-                        value = 0
-                
-                normalized.append({"name": str(name), "value": float(value)})
+                    name = f"项{index + 1}"
+                if raw_value is None:
+                    raw_value = next((value for value in item.values() if isinstance(value, (int, float))), 0)
+
+                normalized.append({"name": str(name), "value": self._to_number(raw_value)})
             elif isinstance(item, (int, float)):
-                normalized.append({"name": f"项{i+1}", "value": float(item)})
-        
+                normalized.append({"name": f"项{index + 1}", "value": item})
+            else:
+                normalized.append({"name": str(item), "value": 0})
+
         return normalized
-    
-    def is_fake_uuid_url(self, url: str) -> bool:
-        """检测是否是伪造的 UUID URL"""
-        try:
-            from urllib.parse import urlparse
-            parsed = urlparse(url)
-            path_parts = [p for p in parsed.path.lstrip("/").split("/") if p]
-            
-            if len(path_parts) == 1:
-                filename = path_parts[0]
-                uuid_pattern = r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(png|jpg|jpeg|gif)$'
-                return bool(re.match(uuid_pattern, filename, re.IGNORECASE))
-        except:
-            pass
-        return False
-    
+
     def fix_minio_url(self, url: str) -> str:
-        """修复 MinIO URL（完整版）"""
-        from urllib.parse import urlparse, urlunparse
-        
-        url = url.strip().strip("'\"`").strip()
-        
-        if not url.startswith(("http://", "https://")):
-            if any(url.startswith(p) for p in ["114.66.47.144", "localhost", "127.0.0.1"]):
-                url = f"http://{url}"
-        
+        """Normalize shorthand MinIO URLs to include the default bucket/path."""
+        cleaned_url = url.strip().strip("'\"`").strip()
+        endpoint = os.getenv("MINIO_ENDPOINT", "")
+
+        if endpoint and cleaned_url.startswith(endpoint):
+            cleaned_url = f"http://{cleaned_url}"
+
+        parsed = urlparse(cleaned_url)
+        path_parts = [part for part in parsed.path.lstrip("/").split("/") if part]
+        default_bucket = _default_bucket()
+        default_chat_path = _default_chat_path()
+
+        if len(path_parts) == 1:
+            new_path = f"/{default_bucket}/{default_chat_path}/{path_parts[0]}"
+            return urlunparse(parsed._replace(path=new_path))
+
+        if len(path_parts) == 2 and path_parts[0] == default_bucket:
+            new_path = f"/{default_bucket}/{default_chat_path}/{path_parts[1]}"
+            return urlunparse(parsed._replace(path=new_path))
+
+        return cleaned_url
+
+    def parse_minio_object(self, url: str) -> tuple[str, str]:
+        """Extract bucket and object name from a MinIO URL or object path."""
+        parsed = urlparse(url)
+        path_parts = [part for part in parsed.path.lstrip("/").split("/") if part]
+
+        if len(path_parts) >= 2:
+            return path_parts[0], "/".join(path_parts[1:])
+
+        if len(path_parts) == 1:
+            return _default_bucket(), f"{_default_chat_path()}/{path_parts[0]}"
+
+        raise ValueError("chart_url 中未找到有效的对象路径")
+
+    @staticmethod
+    def _first_present(item: dict[str, Any], keys: tuple[str, ...]) -> Any:
+        for key in keys:
+            if key in item:
+                return item[key]
+        return None
+
+    @staticmethod
+    def _to_number(value: Any) -> float | int:
+        if isinstance(value, (int, float)):
+            return value
+        if isinstance(value, list) and value:
+            return ChartService._to_number(value[0])
         try:
-            parsed = urlparse(url)
-            path_parts = [p for p in parsed.path.lstrip("/").split("/") if p]
-            
-            if len(path_parts) == 1:
-                filename = path_parts[0]
-                new_path = f"/{default_bucket}/{default_chat_path}/{filename}"
-                url = urlunparse(parsed._replace(path=new_path))
-            elif len(path_parts) >= 1 and path_parts[0] == default_bucket:
-                if len(path_parts) == 2:
-                    new_path = f"/{default_bucket}/{default_chat_path}/{path_parts[1]}"
-                    url = urlunparse(parsed._replace(path=new_path))
-        except Exception:
-            pass
-        
-        return url
+            return float(value)
+        except (TypeError, ValueError):
+            return 0
 
 
 _chart_service: ChartService | None = None
 
 
 def get_chart_service() -> ChartService:
-    """获取图表服务实例"""
+    """Get the shared chart service instance."""
     global _chart_service
     if _chart_service is None:
         _chart_service = ChartService()
