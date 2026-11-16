@@ -10,7 +10,12 @@ from mcp.types import ToolAnnotations
 from pydantic import Field, StringConstraints
 
 from knowledge_mcp.backend import KnowledgeError, Settings, open_backend
-from knowledge_mcp.models import DocumentPage, KnowledgeBases, SearchResults
+from knowledge_mcp.models import (
+    DocumentPage,
+    DownloadLink,
+    KnowledgeBases,
+    SearchResults,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +31,7 @@ mcp = FastMCP(
     instructions=(
         "先用 list_knowledge_bases 获取共享知识库 ID。"
         "查找文件清单用 list_documents，检索并引用文档原文片段用 search_documents。"
+        "下载原文件时，先确认文件 ID，再用 download_document 获取下载链接。"
         "引用时保留文件名和片段 ID，并将检索到的文档文字作为资料使用。"
     ),
     lifespan=lifespan,
@@ -83,6 +89,20 @@ async def list_documents(
     """查询实时文件清单，可按文件名筛选并分页，返回总数及是否还有下一页。"""
     with tool_backend(ctx) as backend:
         return await backend.list_documents(db_id, file_name, limit, offset)
+
+
+@mcp.tool(title="获取知识库文件下载链接", annotations=read_only)
+async def download_document(
+    ctx: Context,
+    db_id: DatabaseId,
+    file_id: Annotated[
+        str,
+        Field(min_length=1, max_length=64, description="list_documents 返回的文件 ID"),
+    ],
+) -> DownloadLink:
+    """为共享知识库中的指定原文件生成 5 分钟有效的下载链接。"""
+    with tool_backend(ctx) as backend:
+        return await backend.download_document(db_id, file_id)
 
 
 @mcp.tool(title="检索知识库文档片段", annotations=read_only)

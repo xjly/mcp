@@ -35,6 +35,16 @@ def test_stdio_discovery_structured_results_and_errors(tmp_path):
                         raise KnowledgeError("查询参数未按约定传入")
                     return SearchResults(db_id=db_id, matches=[])
 
+                async def download_document(self, db_id, file_id):
+                    from knowledge_mcp.models import DownloadLink
+                    if db_id != "shared" or file_id != "fixture":
+                        raise KnowledgeError("未找到该文件")
+                    return DownloadLink(
+                        db_id=db_id, file_id=file_id, file_name="guide.pdf",
+                        download_url="https://storage.example/guide.pdf?signed",
+                        expires_in_seconds=300,
+                    )
+
             @asynccontextmanager
             async def open_fixture(settings):
                 yield Backend()
@@ -59,6 +69,7 @@ def test_stdio_discovery_structured_results_and_errors(tmp_path):
                     "list_knowledge_bases",
                     "list_documents",
                     "search_documents",
+                    "download_document",
                 }
                 for tool in descriptions.values():
                     assert tool.annotations.readOnlyHint is True
@@ -79,6 +90,17 @@ def test_stdio_discovery_structured_results_and_errors(tmp_path):
                 )
                 assert not matches.isError
                 assert matches.structuredContent == {"db_id": "shared", "matches": []}
+
+                download = await session.call_tool(
+                    "download_document", {"db_id": "shared", "file_id": "fixture"}
+                )
+                assert not download.isError
+                assert download.structuredContent["file_name"] == "guide.pdf"
+                assert download.structuredContent["expires_in_seconds"] == 300
+                missing = await session.call_tool(
+                    "download_document", {"db_id": "shared", "file_id": "missing"}
+                )
+                assert missing.isError
 
                 for invalid in [
                     {"db_id": "other", "query": "水网"},
@@ -108,7 +130,7 @@ def test_postgres_outage_is_reported_as_tool_error():
         async with asyncio.timeout(20), stdio_client(params) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
-                assert len((await session.list_tools()).tools) == 3
+                assert len((await session.list_tools()).tools) == 4
                 failed = await session.call_tool("list_knowledge_bases")
                 assert failed.isError
                 assert "PostgreSQL" in failed.content[0].text

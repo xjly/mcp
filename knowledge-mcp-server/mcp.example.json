@@ -14,7 +14,10 @@
         "WUXI_KG_MILVUS_DATABASE": "default",
         "WUXI_KG_MILVUS_TOKEN": "mcp_kb_reader:your_milvus_password",
         "WUXI_KG_EMBEDDING_URL": "https://api.siliconflow.cn/v1/embeddings",
-        "WUXI_KG_EMBEDDING_API_KEY": "your_siliconflow_api_key"
+        "WUXI_KG_EMBEDDING_API_KEY": "your_siliconflow_api_key",
+        "WUXI_KG_MINIO_URL": "",
+        "WUXI_KG_MINIO_ACCESS_KEY": "",
+        "WUXI_KG_MINIO_SECRET_KEY": ""
       }
     }
   }

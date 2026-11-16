@@ -7,8 +7,10 @@ dependencies = [
     "asyncpg>=0.29,<1",
     "httpx>=0.28,<1",
     "mcp>=1.27,<2",
+    "minio>=7.2.7,<8",
     "pydantic>=2,<3",
     "pymilvus>=2.5.8,<2.6",
+    "urllib3>=1.26,<3",
 ]
 
 [project.scripts]

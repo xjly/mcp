@@ -29,6 +29,14 @@ class DocumentPage(BaseModel):
     has_more: bool
 
 
+class DownloadLink(BaseModel):
+    db_id: str
+    file_id: str
+    file_name: str
+    download_url: str
+    expires_in_seconds: int
+
+
 class SearchMatch(BaseModel):
     content: str
     truncated: bool

@@ -1,5 +1,6 @@
 import json
 import unittest
+from dataclasses import replace
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
@@ -10,6 +11,7 @@ from knowledge_mcp.backend import (
     Settings,
     open_backend,
 )
+from knowledge_mcp.downloads import DownloadSettings
 
 
 CONFIG = {
@@ -92,6 +94,69 @@ class KnowledgeBackendTests(unittest.IsolatedAsyncioTestCase):
         self.postgres.fetchrow.assert_not_awaited()
         self.milvus.search.assert_not_called()
         self.assertEqual(self.requests, [])
+
+    async def test_download_rejects_another_library_before_looking_up_file(self):
+        with self.assertRaisesRegex(KnowledgeError, "该知识库未开放"):
+            await self.backend.download_document("kb_other", "file-1")
+        self.postgres.fetchrow.assert_not_awaited()
+
+    async def test_download_returns_a_link_for_the_scoped_file(self):
+        record = {
+            "file_name": "水务手册.pdf",
+            "file_type": "pdf",
+            "storage_path": "http://minio.internal/ref-kb-water/guide.pdf",
+        }
+        self.postgres.fetchrow.side_effect = [KB, record]
+        signed = "https://minio.example/ref-kb-water/guide.pdf?X-Amz-Signature=signed"
+        settings = replace(
+            self.backend._settings,
+            downloads=DownloadSettings(
+                "https://minio.example", "reader", "fixture-secret"
+            ),
+        )
+        with patch("knowledge_mcp.backend.DownloadStorage") as storage:
+            storage.return_value.download_url = AsyncMock(return_value=signed)
+            backend = KnowledgeBackend(settings, postgres=self.postgres, http=self.http)
+            result = await backend.download_document("kb_water", "file-1")
+        self.assertEqual(
+            self.postgres.fetchrow.await_args.args[1:], ("kb_water", "file-1")
+        )
+        self.assertEqual(storage.call_args.kwargs["bucket"], "ref-kb-water")
+        storage.return_value.download_url.assert_awaited_once_with(
+            record["storage_path"], record["file_name"]
+        )
+        self.assertEqual(
+            result.model_dump(),
+            {
+                "db_id": "kb_water",
+                "file_id": "file-1",
+                "file_name": "水务手册.pdf",
+                "download_url": signed,
+                "expires_in_seconds": 300,
+            },
+        )
+
+    async def test_download_reports_missing_storage_config_without_querying_download_view(
+        self,
+    ):
+        with self.assertRaisesRegex(KnowledgeError, "WUXI_KG_MINIO_URL"):
+            await self.backend.download_document("kb_water", "file-1")
+        self.assertEqual(self.postgres.fetchrow.await_count, 1)
+
+    async def test_download_rejects_metadata_without_a_stored_original(self):
+        self.postgres.fetchrow.side_effect = [
+            KB,
+            {"file_name": "外部链接", "file_type": "url", "storage_path": None},
+        ]
+        settings = replace(
+            self.backend._settings,
+            downloads=DownloadSettings(
+                "https://minio.example", "reader", "fixture-secret"
+            ),
+        )
+        backend = KnowledgeBackend(settings, postgres=self.postgres, http=self.http)
+        with self.assertRaisesRegex(KnowledgeError, "没有可通过 MCP 下载"):
+            await backend.download_document("kb_water", "file-1")
 
     async def test_pagination_keeps_total_for_offset_past_end(self):
         self.postgres.fetch.return_value = [{"file_id": None, "total": 3}]

@@ -10,9 +10,16 @@ import asyncpg
 import httpx
 from pymilvus import MilvusClient
 
+from .downloads import (
+    DOWNLOAD_TTL_SECONDS,
+    DownloadError,
+    DownloadSettings,
+    DownloadStorage,
+)
 from .models import (
     Document,
     DocumentPage,
+    DownloadLink,
     KnowledgeBase,
     KnowledgeBases,
     SearchMatch,
@@ -51,6 +58,11 @@ _SEARCH_DOCUMENTS_SQL = """
     FROM mcp_kb.documents
     WHERE db_id = $1 AND file_id = ANY($2::text[])
 """
+_DOWNLOAD_DOCUMENT_SQL = """
+    SELECT file_name, storage_path
+    FROM mcp_kb.document_downloads
+    WHERE db_id = $1 AND file_id = $2
+"""
 
 
 class KnowledgeError(ValueError):
@@ -66,6 +78,7 @@ class Settings:
     milvus_token: str = field(repr=False)
     embedding_url: str = field(repr=False)
     embedding_api_key: str = field(default="", repr=False)
+    downloads: DownloadSettings = field(default_factory=DownloadSettings, repr=False)
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -83,6 +96,7 @@ class Settings:
             milvus_token=_require_env("WUXI_KG_MILVUS_TOKEN"),
             embedding_url=_require_http_url("WUXI_KG_EMBEDDING_URL"),
             embedding_api_key=os.environ.get("WUXI_KG_EMBEDDING_API_KEY", "").strip(),
+            downloads=DownloadSettings.from_env(),
         )
 
 
@@ -148,6 +162,46 @@ class KnowledgeBackend:
             offset=offset,
             total=total,
             has_more=offset + len(files) < total,
+        )
+
+    async def download_document(self, db_id: str, file_id: str) -> DownloadLink:
+        await self._configured_database(db_id)
+        try:
+            storage = DownloadStorage(
+                self._settings.downloads, bucket=f"ref-{db_id[:32].replace('_', '-')}"
+            )
+        except DownloadError as exc:
+            raise KnowledgeError(str(exc)) from None
+
+        try:
+            row = await self._postgres.fetchrow(
+                _DOWNLOAD_DOCUMENT_SQL, db_id, file_id, timeout=IO_TIMEOUT
+            )
+        except asyncpg.UndefinedTableError:
+            raise KnowledgeError(
+                "文件下载视图尚未初始化，请联系管理员运行 setup_readonly_downloads.sql。"
+            ) from None
+        except Exception:
+            raise KnowledgeError(
+                "读取文件下载信息失败，请检查 PostgreSQL 连接及下载视图的只读权限。"
+            ) from None
+        if row is None:
+            raise KnowledgeError(
+                "未在共享知识库中找到该文件，请先调用 list_documents。"
+            )
+        if not row["storage_path"]:
+            raise KnowledgeError("该文件没有可通过 MCP 下载的 MinIO 原件。")
+
+        try:
+            url = await storage.download_url(row["storage_path"], row["file_name"])
+        except DownloadError as exc:
+            raise KnowledgeError(str(exc)) from None
+        return DownloadLink(
+            db_id=db_id,
+            file_id=file_id,
+            file_name=row["file_name"],
+            download_url=url,
+            expires_in_seconds=DOWNLOAD_TTL_SECONDS,
         )
 
     async def search_documents(

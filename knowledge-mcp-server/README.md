@@ -34,6 +34,39 @@ for privilege in ('Search', 'DescribeCollection'):
 
 嵌入服务必须提供原始索引使用的模型和维度。PostgreSQL 的 `embed_info` 需提供 `model_id`、`name` 和 `dimension`。`model_id` 以 `ollama/` 开头时，配置 Ollama 的完整 `/api/embed` URL。其余模型配置 OpenAI 兼容服务的完整 `/v1/embeddings` URL。查询文本会发送至这个嵌入服务。
 
+### 原文件下载
+
+启用下载时，针对已部署的 MCP 只读账号执行 [setup_readonly_downloads.sql](setup_readonly_downloads.sql)。新部署先执行 `setup_readonly_views.sql`，再执行下载脚本。下载视图沿用文档清单的知识库范围。
+
+```powershell
+psql -d 'knowledge-db' -v reader_role=mcp_kb_reader -f setup_readonly_downloads.sql
+```
+
+为 MCP 创建 MinIO 专用账号，并把 `s3:GetObject` 限定到目标知识库原文件所在的存储桶。存储桶名为 `ref-` 加上知识库 ID 的前 32 个字符，其中下划线替换成连字符。将下例保存为 `mcp-kb-download.json`，并按实际库替换存储桶名。 [MinIO 权限文档](https://min.io/docs/minio/container/administration/identity-access-management/policy-based-access-control.html)
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject"],
+      "Resource": ["arn:aws:s3:::ref-kb-32676d6144484f6543972bb4d314d/*"]
+    }
+  ]
+}
+```
+
+使用 MinIO 管理员配置的 `mc` 别名 `$minioAdminAlias`，以及为此账号准备的 `$minioDownloadAccessKey` 和 `$minioDownloadSecretKey`，创建用户并绑定策略。
+
+```powershell
+mc admin policy create $minioAdminAlias mcp-kb-download .\mcp-kb-download.json
+mc admin user add $minioAdminAlias $minioDownloadAccessKey $minioDownloadSecretKey
+mc admin policy attach $minioAdminAlias mcp-kb-download --user $minioDownloadAccessKey
+```
+
+在客户端配置下表中的三项 MinIO 设置。签名使用 MinIO 默认区域 `us-east-1`。下载链接有效期为 300 秒，持有链接者可在有效期内访问对应对象。该工具支持原文件存放在目标 MinIO 存储桶的文档，网页 URL 和服务器本地文件使用知识库网页端处理。
+
 ## 客户端配置
 
 将 [mcp.example.json](mcp.example.json) 中的 `knowledge` 配置复制到 MCP 客户端，并从本地秘密配置注入专用凭据。Git 安装地址需要包含服务代码的仓库版本。验证本地检出时，把 `--from` 后的参数换成 `knowledge-mcp-server` 的绝对路径。配置中的凭据和地址均为占位值。
@@ -47,6 +80,9 @@ for privilege in ('Search', 'DescribeCollection'):
 | `WUXI_KG_MILVUS_TOKEN` | 该 collection 的专用凭据，自托管 Milvus 通常使用 `用户名:密码` |
 | `WUXI_KG_EMBEDDING_URL` | 原索引模型的完整嵌入接口 URL |
 | `WUXI_KG_EMBEDDING_API_KEY` | 可选，嵌入服务要求 Bearer 鉴权时提供 |
+| `WUXI_KG_MINIO_URL` | 启用下载时填写浏览器和 MCP 客户端均可访问的 MinIO S3 API 地址，如 `https://minio.example.net`，地址仅包含协议、主机和可选端口 |
+| `WUXI_KG_MINIO_ACCESS_KEY` | 启用下载时填写目标存储桶的 MinIO 专用账号 |
+| `WUXI_KG_MINIO_SECRET_KEY` | 启用下载时填写该 MinIO 账号的密钥 |
 
 ## 工具
 
@@ -55,6 +91,7 @@ for privilege in ('Search', 'DescribeCollection'):
 | `list_knowledge_bases` | 无 | `databases` 包含已配置知识库的 ID、名称、描述和类型 |
 | `list_documents` | `db_id` 和可选的 `file_name`（最多 200 字符）、`limit=20`（1–100）、`offset=0`（非负） | 用 `file_name` 对当前文件名和原文件名做不区分大小写的子串匹配。返回 `files`、`total` 和 `has_more` 等分页信息 |
 | `search_documents` | `db_id` 和 `query`（去除首尾空白后 1–1000 字符），可选 `limit=5`（1–20） | `matches` 包含相关文档片段、`file_id`、`file_name` 和可用的 `chunk_id`、`chunk_index`、`score`。引用时保留文件名和可用的片段 ID。`truncated` 表示片段是否截断 |
+| `download_document` | `db_id` 和 `file_id` | 返回原文件名、`download_url` 和 `expires_in_seconds`。用 `list_documents` 按文件名找到相应的 `file_id` |
 
 建议先调用 `list_knowledge_bases` 取得 `db_id`。想确认文件是否收录时，调用 `list_documents`。根据问题找文档证据时，直接调用 `search_documents`。工具返回结构化结果，库中没有匹配项时返回空列表。调用失败由 MCP 客户端显示为工具错误。
 
@@ -70,3 +107,5 @@ npx @modelcontextprotocol/inspector@v1-latest --cli --config .\mcp.json --server
 ```
 
 用实际有权限的测试库 ID 替换命令中的示例 ID。确认列表只显示该库，文档可分页读取，检索片段的 `file_id` 与目录对应。分别传入另一个库 ID、空白查询和越界的 `limit`，确认 MCP 返回工具错误。
+
+启用下载后，使用 `list_documents` 返回的真实 `file_id` 调用 `download_document`。用浏览器打开返回的链接，确认下载的是指定文件的原件。
