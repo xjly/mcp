@@ -1,9 +1,10 @@
 """Schedule MCP Server - 定时任务和大屏推送服务"""
 
-import json
-import uuid
-import os
 import asyncio
+import json
+import logging
+import sys
+import uuid
 from datetime import datetime
 
 import arrow
@@ -13,6 +14,8 @@ from mcp.server.fastmcp import FastMCP
 from schedule.scheduler import get_schedule_service
 from schedule.pusher import get_push_service
 from schedule.utils import safe_result
+
+logger = logging.getLogger(__name__)
 
 # ============================================================================
 # MCP 服务器定义
@@ -79,20 +82,12 @@ def on_timer_triggered(
     定时器触发时的回调函数（同步函数，内部创建异步任务）
     注意：必须是同步函数！APScheduler 不会 await 异步函数。
     """
-    import asyncio
-    import concurrent.futures
-    
     async def _do_push():
         try:
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             dynamic_content = content.replace("{current_time}", current_time).replace("{now}", current_time)
             
-            print(f"[定时任务] ========== 开始执行 ==========")
-            print(f"[定时任务] 任务ID: {job_id}")
-            print(f"[定时任务] 任务名称: {task_name}")
-            print(f"[定时任务] 推送目标: {push_target}")
-            print(f"[定时任务] 推送内容: {dynamic_content[:100]}...")
-            
+            logger.info("开始执行定时任务 %s", job_id)
             push_svc = get_push_service()
             push_result = await push_svc.push_to_screen(
                 content=dynamic_content,
@@ -100,22 +95,16 @@ def on_timer_triggered(
                 title=task_name
             )
             
-            print(f"[定时任务] {task_name} 执行完成，推送到 {push_target}")
-            print(f"[定时任务] 推送结果: {push_result.get('status', 'unknown')}")
-            print(f"[定时任务] ================================")
-        except Exception as e:
-            print(f"[定时任务] {task_name} 执行失败: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.info("定时任务 %s 推送结果 %s", job_id, push_result.get("status", "unknown"))
+        except Exception as exc:
+            logger.error("定时任务 %s 执行失败 (%s)", job_id, type(exc).__name__)
     
     # 在现有事件循环中创建任务
     try:
         loop = asyncio.get_running_loop()
         loop.create_task(_do_push())
-        print(f"[定时任务] 已投递异步推送任务: {task_name}")
     except RuntimeError:
         # 没有运行中的事件循环，创建新的
-        print(f"[定时任务] 创建新事件循环执行: {task_name}")
         asyncio.run(_do_push())
 
 
@@ -150,12 +139,6 @@ async def schedule_task(
         JSON 字符串，包含操作结果
     """
 
-    print(f"\n[MCP工具] ========== schedule_task ==========")
-    print(f"[MCP工具] action: {action}")
-    print(f"[MCP工具] cron_expression: {cron_expression}")
-    print(f"[MCP工具] task_name: {task_name}")
-    print(f"[MCP工具] push_target: {push_target}")
-    print(f"[MCP工具] task_id: {task_id}")
     schedule_svc = get_schedule_service()
 
     # ========== 列出所有任务 ==========
@@ -170,14 +153,13 @@ async def schedule_task(
             "db_path": schedule_svc.get_db_path(),
             "tasks": jobs
         }
-        print(f"[MCP工具] 列出 {len(jobs)} 个任务")
+        logger.debug("列出 %d 个定时任务", len(jobs))
         return json.dumps(result, ensure_ascii=False, indent=2)
 
     # ========== 创建定时任务 ==========
     elif action == "create":
         if not cron_expression or not content:
             error_msg = "创建任务缺少必要参数: cron_expression 和 content"
-            print(f"[MCP工具] 创建任务失败:  {error_msg}")
             return json.dumps({
                 "status": "error",
                 "message": error_msg
@@ -190,7 +172,6 @@ async def schedule_task(
             next_run_dt = cron.get_next(datetime)
         except Exception as e:
             error_msg = f"无效的 cron 表达式: {cron_expression}, 错误: {str(e)}"
-            print(f"[MCP工具] {error_msg}")
             return json.dumps({
                 "status": "error",
                 "message": error_msg
@@ -225,11 +206,9 @@ async def schedule_task(
                 "db_path": schedule_svc.get_db_path(),
                 "message": f" 定时任务「{task_name}」已创建，下次执行时间: {next_run_dt.strftime('%Y-%m-%d %H:%M:%S')}"
             }
-            print(f"[MCP工具]任务创建成功: {job_id}")
             return json.dumps(result, ensure_ascii=False, indent=2)
         else:
             error_msg = f"创建定时任务失败: {task_name}"
-            print(f"[MCP工具]  {error_msg}")
             return json.dumps({
                 "status": "error",
                 "action": "create",
@@ -240,7 +219,6 @@ async def schedule_task(
     elif action == "cancel":
         if not task_id:
             error_msg = "取消任务需要提供 task_id"
-            print(f"[MCP工具]{error_msg}")
             return json.dumps({
                 "status": "error",
                 "message": error_msg
@@ -255,11 +233,9 @@ async def schedule_task(
                 "task_id": task_id,
                 "message": f" 定时任务 {task_id} 已成功取消"
             }
-            print(f"[MCP工具] 任务已取消: {task_id}")
             return json.dumps(result, ensure_ascii=False, indent=2)
         else:
             error_msg = f"未找到任务或取消失败: {task_id}"
-            print(f"[MCP工具]  {error_msg}")
             return json.dumps({
                 "status": "error",
                 "action": "cancel",
@@ -269,7 +245,6 @@ async def schedule_task(
 
     else:
         error_msg = f"不支持的操作: {action}，支持: create, cancel, list"
-        print(f"[MCP工具]  {error_msg}")
         return json.dumps({
             "status": "error",
             "message": error_msg
@@ -293,18 +268,13 @@ async def push_to_screen(
     Returns:
         JSON 字符串，包含推送结果
     """
-    print(f"\n[MCP工具] ========== push_to_screen ==========")
-    print(f"[MCP工具] screen_id: {screen_id}")
-    print(f"[MCP工具] title: {title}")
-    print(f"[MCP工具] content: {content[:100]}...")
-
     push_svc = get_push_service()
     result = await push_svc.push_to_screen(
         content=content,
         screen_id=screen_id,
         title=title
     )
-    print(f"[MCP工具] 推送结果: {result.get('status', 'unknown')}")
+    logger.info("即时推送结果 %s", result.get("status", "unknown"))
     return json.dumps(safe_result(result), ensure_ascii=False, indent=2)
 
 
@@ -314,25 +284,14 @@ async def push_to_screen(
 
 def main():
     """主入口函数"""
-    print("=" * 60)
-    print(" Schedule MCP Server 启动中...")
-    print("=" * 60)
-    print(f"  - JOB_STORE_TYPE: {os.environ.get('JOB_STORE_TYPE', 'sqlite')}")
-    print(f"  - SQLITE_DB_PATH: {os.environ.get('SQLITE_DB_PATH', './jobs.sqlite')}")
-    print(f"  - SCHEDULER_TIMEZONE: {os.environ.get('SCHEDULER_TIMEZONE', 'Asia/Shanghai')}")
-    print(f"  - PUSH_SERVICE_URL: {os.environ.get('PUSH_SERVICE_URL', 'http://localhost:8080/api/push')}")
-    print(f"  - 当前工作目录: {os.getcwd()}")
-    print("=" * 60)
-    print()
+    logging.basicConfig(level=logging.INFO, stream=sys.stderr)
+    logger.info("Schedule MCP Server 启动中")
     try:
-        print("[main] 启动 MCP 服务器...")
         mcp.run()
     except KeyboardInterrupt:
-        print("服务被用户中断")
-    except Exception as e:
-        print(f"服务异常: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.info("服务被用户中断")
+    except Exception as exc:
+        logger.error("Schedule MCP Server 异常退出 (%s)", type(exc).__name__)
 
 
 if __name__ == "__main__":

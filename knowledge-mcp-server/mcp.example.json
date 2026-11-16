@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "knowledge": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/xjly/mcp#subdirectory=knowledge-mcp-server",
+        "knowledge-mcp"
+      ],
+      "env": {
+        "WUXI_KG_DB_ID": "kb_32676d6144484f6543972bb4d314db7b",
+        "WUXI_KG_POSTGRES_DSN": "postgresql://mcp_kb_reader:your_postgres_password@your-server-host:5432/yuxi_know",
+        "WUXI_KG_MILVUS_URI": "http://your-server-host:19530",
+        "WUXI_KG_MILVUS_DATABASE": "default",
+        "WUXI_KG_MILVUS_TOKEN": "mcp_kb_reader:your_milvus_password",
+        "WUXI_KG_EMBEDDING_URL": "https://api.siliconflow.cn/v1/embeddings",
+        "WUXI_KG_EMBEDDING_API_KEY": "your_siliconflow_api_key"
+      }
+    }
+  }
+}

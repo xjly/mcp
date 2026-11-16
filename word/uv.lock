@@ -1269,7 +1269,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "langchain-openai", specifier = ">=0.0.8" },
-    { name = "mcp", extras = ["cli"], specifier = ">=1.27.0" },
+    { name = "mcp", extras = ["cli"], specifier = ">=1.27.0,<2" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
 ]
 

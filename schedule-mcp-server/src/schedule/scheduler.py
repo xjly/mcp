@@ -1,5 +1,6 @@
 """Schedule Service - 调度器服务层（支持任务持久化）"""
 
+import logging
 import os
 import uuid
 from datetime import datetime
@@ -14,10 +15,12 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from croniter import croniter
 import arrow
 
+logger = logging.getLogger(__name__)
+
 
 def scheduler_heartbeat():
     """Keep the scheduler event loop waking up without persisting this runtime job."""
-    print("[心跳] 调度器运行中")
+    logger.debug("调度器运行中")
 
 
 def _default_sqlite_db_path() -> str:
@@ -60,13 +63,6 @@ class ScheduleService:
         self._job_store_type = os.getenv("JOB_STORE_TYPE", "sqlite")
         self._db_path = None  # ← 新增：保存数据库路径
 
-        print(f"[ScheduleService] ========== 初始化调试信息 ==========")
-        print(f"[ScheduleService] JOB_STORE_TYPE = {self._job_store_type}")
-        print(f"[ScheduleService] SCHEDULER_TIMEZONE = {self._timezone}")
-        print(f"[ScheduleService] SQLITE_DB_PATH = {os.getenv('SQLITE_DB_PATH', '未设置')}")
-        print(f"[ScheduleService] PWD = {os.getcwd()}")
-        print(f"[ScheduleService] __file__ = {__file__}")
-        print(f"[ScheduleService] ========================================")
         # 根据配置选择任务存储方式
         jobstores = self._create_jobstores()
         jobstores["runtime"] = MemoryJobStore()
@@ -87,37 +83,24 @@ class ScheduleService:
     def _create_jobstores(self) -> dict:
         """根据配置创建任务存储"""
 
-        # 调试信息
-        print(f"[_create_jobstores] ========== 路径调试 ==========")
-        print(f"[_create_jobstores] SQLITE_DB_PATH 环境变量: {os.getenv('SQLITE_DB_PATH', '未设置')}")
-        print(f"[_create_jobstores] JOB_STORE_TYPE 环境变量: {os.getenv('JOB_STORE_TYPE', '未设置')}")
-        print(f"[_create_jobstores] 当前工作目录 (cwd): {os.getcwd()}")
-        print(f"[_create_jobstores] 当前文件位置 (__file__): {__file__}")
-
-        
         if self._job_store_type == "sqlite":
             # 方法1: 优先使用环境变量（MCP 客户端会设置）
             db_path = os.getenv("SQLITE_DB_PATH")
         
             if not db_path:
                 db_path = _default_sqlite_db_path()
-                print(f"[_create_jobstores] 自动计算路径: {db_path}")
                 self._db_path = db_path  # ← 新增：保存数据库路径
         
             # 转换为绝对路径
             db_path = os.path.abspath(db_path)
             self._db_path = db_path
-            print(f"[_create_jobstores] 最终数据库路径: {db_path}")
 
             # 确保目录存在
             db_dir = os.path.dirname(db_path)
             if db_dir:
                 os.makedirs(db_dir, exist_ok=True)
-                print(f"[_create_jobstores] 已确保目录存在: {db_dir}")
   
             sqlalchemy_url = f'sqlite:///{db_path}'
-            print(f"[_create_jobstores] SQLAlchemy URL: {sqlalchemy_url}")
-            print(f"[_create_jobstores] ================================")
             
             return {
                 'default': SQLAlchemyJobStore(
@@ -129,12 +112,10 @@ class ScheduleService:
             postgresql_url = os.getenv("POSTGRESQL_URL")
             if not postgresql_url:
                 raise ValueError("使用 postgresql 存储需要配置 POSTGRESQL_URL")
-            print(f"[_create_jobstores] 使用 PostgreSQL: {postgresql_url}")
             return {
                 'default': SQLAlchemyJobStore(url=postgresql_url)
             }
         else:
-            print(f"[_create_jobstores] 使用内存存储（任务不会持久化）")
             return {
                 'default': MemoryJobStore()
             }
@@ -152,7 +133,6 @@ class ScheduleService:
 
             # 获取调度器中所有已存储的任务
             jobs = self._scheduler.get_jobs()
-            print(f"[_load_jobs_from_store] 从调度器获取到 {len(jobs)} 个任务")
 
             for job in jobs:
                 # 强制重新绑定回调函数为正确的模块引用
@@ -168,24 +148,17 @@ class ScheduleService:
                     callback=job.func  # 保存回调函数引用
                 )
                 self._jobs[job.id] = job_info
-                print(f"[_load_jobs_from_store] 加载任务: {job.id} - {job.name}")
-                
-            if self._job_store_type != "memory" and self._jobs:
-                print(f"[_load_jobs_from_store] 从持久化存储加载了 {len(self._jobs)} 个定时任务")
-            elif self._job_store_type != "memory":
-                print(f"[_load_jobs_from_store] 持久化存储中没有任务")
-        except Exception as e:
-            print(f"[_load_jobs_from_store] 加载持久化任务失败: {e}")
-            import traceback
-            traceback.print_exc()
+
+            logger.debug("载入 %d 个定时任务", len(jobs))
+        except Exception as exc:
+            logger.error("加载持久化任务失败 (%s)", type(exc).__name__)
 
     def start(self):
         """启动调度器"""
         if not self._running:
-            print(f"[start] 正在启动调度器...")
             self._scheduler.start()
             self._running = True
-            print(f" 调度器已启动 (存储类型: {self._job_store_type})")
+            logger.info("调度器已启动 (存储类型: %s)", self._job_store_type)
             # 添加心跳任务，保持调度器活跃
             try:
                 self._scheduler.add_job(
@@ -199,7 +172,6 @@ class ScheduleService:
             except:
                 pass
             # 启动后从数据库加载任务信息到内存缓存
-            print(f"[start] 正在从数据库加载任务信息...")
             self._load_jobs_from_store()
 
     def get_store_type(self) -> str:
@@ -215,7 +187,7 @@ class ScheduleService:
         if self._running:
             self._scheduler.shutdown()
             self._running = False
-            print("[ScheduleService] 调度器已关闭")
+            logger.info("调度器已关闭")
 
     async def add_cron_job(
         self,
@@ -241,11 +213,6 @@ class ScheduleService:
             是否添加成功
         """
         try:
-            print(f"[add_cron_job] 添加任务: {job_id}")
-            print(f"  - cron: {cron_expr}")
-            print(f"  - name: {task_name}")
-            print(f"  - target: {push_target}")
-
             trigger = CronTrigger.from_crontab(cron_expr, timezone=self._timezone)
 
             # 确保使用完整的模块路径
@@ -280,14 +247,11 @@ class ScheduleService:
                 next_run_time=next_run,
                 callback=callback
             )
-            print(f"[add_cron_job] 任务添加成功: {job_id}")
-            print(f"  - 下次执行: {next_run.strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info("定时任务 %s 已添加", job_id)
             return True
 
-        except Exception as e:
-            print(f"[add_cron_job] 添加定时任务失败: {e}")
-            import traceback
-            traceback.print_exc()
+        except Exception as exc:
+            logger.error("添加定时任务失败 (%s)", type(exc).__name__)
             return False
 
     def remove_job(self, job_id: str) -> bool:
@@ -296,15 +260,12 @@ class ScheduleService:
             self._scheduler.remove_job(job_id)
             if job_id in self._jobs:
                 del self._jobs[job_id]
-            print(f"[remove_job]任务移除成功: {job_id}")
+            logger.info("定时任务已移除")
             return True
         except JobLookupError:
-            print(f"[remove_job]任务移除失败: 未找到任务 {job_id}")
             return False
-        except Exception as e:
-            print(f"[remove_job]任务移除失败: {e}")
-            import traceback
-            traceback.print_exc()
+        except Exception as exc:
+            logger.error("移除定时任务失败 (%s)", type(exc).__name__)
             return False
 
     def list_jobs(self) -> list[dict]:
@@ -313,7 +274,6 @@ class ScheduleService:
         try:
             # 直接从调度器获取最新状态
             aps_jobs = self._scheduler.get_jobs()
-            print(f"[list_jobs] 调度器中有 {len(aps_jobs)} 个任务")
             
             for aps_job in aps_jobs:
                 job_id = aps_job.id
@@ -335,10 +295,8 @@ class ScheduleService:
                     "next_run": next_run.strftime("%Y-%m-%d %H:%M:%S") if next_run else "未计算",
                     "created_at": created_at
                 })
-        except Exception as e:
-            print(f"[list_jobs] 获取任务列表失败: {e}")
-            import traceback
-            traceback.print_exc()
+        except Exception as exc:
+            logger.error("获取任务列表失败 (%s)", type(exc).__name__)
             
         return jobs
 
@@ -361,8 +319,8 @@ class ScheduleService:
                 "next_run": next_run.strftime("%Y-%m-%d %H:%M:%S") if next_run else None,
                 "created_at": job_info.created_at if job_info else ""
             }
-        except Exception as e:
-            print(f"[get_job] 获取任务失败: {e}")
+        except Exception as exc:
+            logger.error("获取任务失败 (%s)", type(exc).__name__)
             return None
 
     def get_job_count(self) -> int:
