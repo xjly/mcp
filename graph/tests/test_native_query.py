@@ -37,20 +37,55 @@ RESULT = {
 }
 
 
+def graph_frame(result, name="NativeGraph工具"):
+    return {
+        "status": "loading",
+        "response": None,
+        "msg": {
+            "type": "tool",
+            "name": name,
+            "content": json.dumps(result),
+        },
+    }
+
+
+def text_frame(text):
+    return {
+        "status": "loading",
+        "response": text,
+        "msg": {"type": "AIMessageChunk", "content": text},
+    }
+
+
+def stream_body(*frames):
+    return "".join(json.dumps(frame, ensure_ascii=False) + "\n" for frame in frames)
+
+
+FINISHED = {"status": "finished", "response": None}
+
+
 class NativeQueryTests(unittest.IsolatedAsyncioTestCase):
-    async def test_native_query_calls_wuxi_endpoint_and_preserves_answer(self):
+    async def test_native_query_calls_existing_graph_agent_and_preserves_evidence(self):
         def respond(request):
             self.assertEqual(request.method, "POST")
             self.assertEqual(
                 str(request.url),
-                "https://wuxi.example/gateway/api/native-graph/mcp/query",
+                "https://wuxi.example/gateway/api/chat/agent/MiniAgent",
             )
             self.assertEqual(request.headers["Authorization"], "Bearer test-token")
             self.assertEqual(
                 json.loads(request.content),
-                {"user_query": "有多少条河道？", "top_k": 12},
+                {"query": "有多少条河道？"},
             )
-            return httpx.Response(200, json=RESULT)
+            return httpx.Response(
+                200,
+                content=stream_body(
+                    {"status": "init"},
+                    graph_frame(RESULT),
+                    text_frame("助手的概述"),
+                    FINISHED,
+                ),
+            )
 
         client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
         with (
@@ -66,7 +101,11 @@ class NativeQueryTests(unittest.IsolatedAsyncioTestCase):
             "candidates": [{"name": "同名河道"}],
         }
         client = httpx.AsyncClient(
-            transport=httpx.MockTransport(lambda _: httpx.Response(200, json=body))
+            transport=httpx.MockTransport(
+                lambda _: httpx.Response(
+                    200, content=stream_body(graph_frame(body), FINISHED)
+                )
+            )
         )
         with (
             patch.dict("os.environ", SETTINGS, clear=True),
@@ -76,12 +115,113 @@ class NativeQueryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.status, "clarification")
         self.assertEqual(result.candidates, body["candidates"])
 
+    async def test_answer_only_stream_is_marked_as_agent_text(self):
+        body = stream_body(text_frame("图谱助手"), text_frame("的回答。"), FINISHED)
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _: httpx.Response(200, content=body))
+        )
+        with (
+            patch.dict("os.environ", SETTINGS, clear=True),
+            patch("graph.native_query.httpx.AsyncClient", return_value=client),
+        ):
+            result = await query_native_graph("查询河道")
+        self.assertEqual(result.answer_text, "图谱助手的回答。")
+        self.assertEqual(result.kind, "agent_answer")
+        self.assertEqual(result.intent, "agent_answer")
+        self.assertEqual(result.nodes, [])
+
+    async def test_statistics_preserve_the_tool_facts_and_source(self):
+        statistics = {
+            "kind": "graph_statistics",
+            "source": "Neo4j 实时业务图谱",
+            "as_of": "2026-11-16T00:00:00+00:00",
+            "facts": {"节点总数": 12},
+            "answer_text": "共有 12 个节点。",
+        }
+        body = stream_body(
+            graph_frame(statistics, name="图谱节点实时统计"),
+            text_frame("约有十几个节点。"),
+            FINISHED,
+        )
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _: httpx.Response(200, content=body))
+        )
+        with (
+            patch.dict("os.environ", SETTINGS, clear=True),
+            patch("graph.native_query.httpx.AsyncClient", return_value=client),
+        ):
+            result = await query_native_graph("图谱一共有多少节点？")
+        self.assertEqual(result.kind, "graph_statistics")
+        self.assertEqual(result.answer_text, statistics["answer_text"])
+        self.assertEqual(result.meta["source"], statistics["source"])
+        self.assertEqual(result.meta["facts"], statistics["facts"])
+
+    async def test_top_k_caps_nodes_and_excludes_dangling_edges(self):
+        body = RESULT | {
+            "nodes": [{"id": "a"}, {"id": "b"}, {"id": "c"}],
+            "edges": [{"source": "a", "target": "b"}, {"source": "b", "target": "c"}],
+        }
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda _: httpx.Response(
+                    200, content=stream_body(graph_frame(body), FINISHED)
+                )
+            )
+        )
+        with (
+            patch.dict("os.environ", SETTINGS, clear=True),
+            patch("graph.native_query.httpx.AsyncClient", return_value=client),
+        ):
+            result = await query_native_graph("查相邻河道", 2)
+        self.assertEqual(result.nodes, body["nodes"][:2])
+        self.assertEqual(result.edges, body["edges"][:1])
+        self.assertEqual(result.meta["node_count"], 2)
+        self.assertTrue(result.meta["truncated"])
+
     async def test_api_errors_are_protocol_tool_errors_without_response_details(self):
         for response, message in [
             (httpx.Response(401, json={"detail": "internal fixture"}), "令牌"),
             (httpx.Response(404), "接口"),
-            (httpx.Response(200, json=RESULT | {"status": "error"}), "图谱查询失败"),
-            (httpx.Response(200, json={"detail": "internal fixture"}), "响应格式"),
+            (
+                httpx.Response(
+                    200,
+                    content=stream_body(
+                        graph_frame(RESULT | {"status": "error"}), FINISHED
+                    ),
+                ),
+                "图谱查询失败",
+            ),
+            (
+                httpx.Response(
+                    200,
+                    content=stream_body(
+                        graph_frame(
+                            {"kind": "graph_statistics_error"}, name="图谱节点实时统计"
+                        ),
+                        text_frame("暂时无法统计。"),
+                        FINISHED,
+                    ),
+                ),
+                "图谱统计失败",
+            ),
+            (
+                httpx.Response(
+                    200,
+                    content=stream_body(
+                        {"status": "error", "error_type": "no_department"}
+                    ),
+                ),
+                "部门",
+            ),
+            (
+                httpx.Response(
+                    200,
+                    content=stream_body(graph_frame(RESULT), {"status": "interrupted"}),
+                ),
+                "中断",
+            ),
+            (httpx.Response(200, content=stream_body(text_frame("未收完"))), "未结束"),
+            (httpx.Response(200, content="<html>internal fixture</html>"), "响应格式"),
         ]:
             with self.subTest(status=response.status_code, message=message):
                 client = httpx.AsyncClient(
@@ -100,7 +240,8 @@ class NativeQueryTests(unittest.IsolatedAsyncioTestCase):
         register_native_query(mcp)
         tool = (await mcp.list_tools())[0]
         self.assertEqual(tool.name, "query_native_graph")
-        self.assertTrue(tool.annotations.readOnlyHint)
+        self.assertFalse(tool.annotations.readOnlyHint)
+        self.assertFalse(tool.annotations.idempotentHint)
         with patch("graph.native_query.httpx.AsyncClient") as client:
             with self.assertRaises(ToolError):
                 await mcp.call_tool(
@@ -133,7 +274,7 @@ class NativeQueryTests(unittest.IsolatedAsyncioTestCase):
                 request_log.append(
                     (self.path, self.headers.get("Authorization"), payload)
                 )
-                body = json.dumps(RESULT, ensure_ascii=False).encode("utf-8")
+                body = stream_body(graph_frame(RESULT), FINISHED).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
@@ -177,9 +318,9 @@ class NativeQueryTests(unittest.IsolatedAsyncioTestCase):
             request_log,
             [
                 (
-                    "/api/native-graph/mcp/query",
+                    "/api/chat/agent/MiniAgent",
                     "Bearer test-token",
-                    {"user_query": "河道一共有多少？", "top_k": 20},
+                    {"query": "河道一共有多少？"},
                 )
             ],
         )
