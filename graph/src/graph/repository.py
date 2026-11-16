@@ -5,10 +5,11 @@
 
 import os
 from contextlib import contextmanager
+from threading import Lock
 from typing import Any
 
 from dotenv import load_dotenv
-from neo4j import GraphDatabase
+from neo4j import GraphDatabase, READ_ACCESS
 
 # 加载 .env 配置
 load_dotenv()
@@ -22,6 +23,7 @@ class Neo4jGraphRepository:
         self._username = os.getenv("NEO4J_USERNAME")
         self._password = os.getenv("NEO4J_PASSWORD")
         self._driver = None
+        self._driver_lock = Lock()
 
         if not all([self._uri, self._username, self._password]):
             raise ValueError(
@@ -31,24 +33,28 @@ class Neo4jGraphRepository:
 
     def _get_driver(self):
         """获取或创建 Neo4j 驱动实例（懒加载）"""
-        if self._driver is None:
-            self._driver = GraphDatabase.driver(
-                self._uri,
-                auth=(self._username, self._password)
-            )
-        return self._driver
+        with self._driver_lock:
+            if self._driver is None:
+                self._driver = GraphDatabase.driver(
+                    self._uri,
+                    auth=(self._username, self._password),
+                    connection_timeout=5,
+                    connection_acquisition_timeout=5,
+                )
+            return self._driver
 
     def close(self):
         """关闭驱动连接"""
-        if self._driver is not None:
-            self._driver.close()
-            self._driver = None
+        with self._driver_lock:
+            if self._driver is not None:
+                self._driver.close()
+                self._driver = None
 
     @contextmanager
     def _session(self):
         """上下文管理器：自动管理会话"""
         driver = self._get_driver()
-        session = driver.session()
+        session = driver.session(default_access_mode=READ_ACCESS, fetch_size=100)
         try:
             yield session
         finally:
@@ -58,7 +64,9 @@ class Neo4jGraphRepository:
         self,
         query: str,
         params: dict | None = None,
-        timeout: int = 30
+        timeout: int = 30,
+        *,
+        limit: int = 500,
     ) -> list[dict[str, Any]]:
         """
         执行只读 Cypher 查询
@@ -67,14 +75,19 @@ class Neo4jGraphRepository:
             query: Cypher 查询语句
             params: 查询参数
             timeout: 超时时间（秒）
+            limit: 最多读取的结果行数
 
         Returns:
             查询结果列表
         """
-        params = params or {}
-        with self._session() as session:
-            result = session.run(query, params, timeout=timeout)
-            return [dict(record) for record in result]
+        if not 1 <= limit <= 500 or not 0 < timeout <= 120:
+            raise ValueError("Neo4j 查询的超时或结果行数超出范围")
+        with (
+            self._session() as session,
+            session.begin_transaction(timeout=timeout) as transaction,
+        ):
+            result = transaction.run(query, params or {})
+            return [dict(record) for record in result.fetch(limit)]
 
     def get_all_labels(self) -> list[str]:
         """获取所有节点标签"""
@@ -90,16 +103,29 @@ class Neo4jGraphRepository:
 
     def get_node_property_keys(self, label: str) -> list[str]:
         """获取指定标签的节点所有属性键"""
-        query = f"""
-        MATCH (n:{label})
-        WITH keys(n) as keys
-        UNWIND keys as key
-        RETURN key, count(*) as count
-        ORDER BY count DESC
-        LIMIT 50
+        counts = self.get_node_property_counts([label], limit=50)
+        return [row["key"] for row in counts.get(label, [])]
+
+    def get_node_property_counts(
+        self, labels: list[str], limit: int = 20
+    ) -> dict[str, list[dict[str, Any]]]:
+        """一次扫描统计各标签最常见的属性。"""
+        if not labels:
+            return {}
+        query = """
+        MATCH (n)
+        UNWIND labels(n) AS label
+        WITH n, label
+        WHERE label IN $labels
+        UNWIND keys(n) AS key
+        WITH label, key, count(*) AS count
+        ORDER BY label, count DESC, key
+        RETURN label, collect({key: key, count: count})[..$limit] AS properties
         """
-        results = self.execute_cypher(query)
-        return [r["key"] for r in results]
+        rows = self.execute_cypher(
+            query, {"labels": labels, "limit": limit}, limit=len(labels)
+        )
+        return {row["label"]: row["properties"] for row in rows}
 
     def __enter__(self):
         return self

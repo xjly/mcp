@@ -1,104 +1,108 @@
-"""Database configuration - PostgreSQL async connection settings"""
+"""PostgreSQL connection pool for the reporter tools."""
 
+import asyncio
+import logging
 import os
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
-from typing import AsyncGenerator
+from urllib.parse import quote, urlsplit
 
 import asyncpg
 from dotenv import load_dotenv
+from mcp.server.fastmcp.exceptions import ToolError
 
 load_dotenv()
 
-
-@dataclass
-class DatabaseConfig:
-    host: str
-    port: int
-    database: str
-    user: str
-    password: str
-
-
-def _parse_connection_string(url: str) -> DatabaseConfig:
-    """Parse postgresql+asyncpg://... URL into components"""
-    # URL format: postgresql+asyncpg://user:password@host:port/db
-    url = url.replace("postgresql+asyncpg://", "")
-    if "@" not in url:
-        raise ValueError("Invalid connection string: missing '@'")
-
-    auth, rest = url.split("@", 1)
-    if ":" in auth:
-        user, password = auth.split(":", 1)
-    else:
-        user = auth
-        password = ""
-
-    if "/" not in rest:
-        raise ValueError("Invalid connection string: missing database")
-    host_port, database = rest.rsplit("/", 1)
-
-    if ":" in host_port:
-        host, port = host_port.split(":", 1)
-        port = int(port)
-    else:
-        host = host_port
-        port = 5432
-
-    return DatabaseConfig(
-        host=host,
-        port=port,
-        database=database,
-        user=user,
-        password=password,
-    )
-
-
-def get_db_config() -> DatabaseConfig:
-    url = os.getenv("DATABASE_URL", "")
-    if url:
-        return _parse_connection_string(url)
-
-    return DatabaseConfig(
-        host=os.getenv("POSTGRES_HOST", "localhost"),
-        port=int(os.getenv("POSTGRES_PORT", "5432")),
-        database=os.getenv("POSTGRES_DB", ""),
-        user=os.getenv("POSTGRES_USER", ""),
-        password=os.getenv("POSTGRES_PASSWORD", ""),
-    )
-
-
+QUERY_TIMEOUT_SECONDS = 30
+logger = logging.getLogger(__name__)
 _pool: asyncpg.Pool | None = None
+_pool_lock = asyncio.Lock()
+
+
+def _connection_parameters() -> dict[str, str | int]:
+    url = os.getenv("DATABASE_URL", "")
+    if not url:
+        return {
+            "host": os.getenv("POSTGRES_HOST", "localhost"),
+            "port": int(os.getenv("POSTGRES_PORT", "5432")),
+            "database": os.getenv("POSTGRES_DB", ""),
+            "user": os.getenv("POSTGRES_USER", ""),
+            "password": os.getenv("POSTGRES_PASSWORD", ""),
+        }
+
+    if url.startswith("postgresql+asyncpg://"):
+        url = _legacy_dsn(url.removeprefix("postgresql+asyncpg://"))
+    return {"dsn": url}
+
+
+def _legacy_dsn(remainder: str) -> str:
+    dsn = f"postgresql://{remainder}"
+    user_info, separator, address = remainder.partition("@")
+    username, colon, password = user_info.partition(":")
+    if (
+        not separator
+        or not colon
+        or any(c in username for c in "/?#")
+        or not any(c in password for c in "/?#")
+    ):
+        return dsn
+
+    # An unescaped password can resemble an invalid host:port. Preserve an
+    # already valid authority when '@' is part of a normal connection option.
+    try:
+        parsed = urlsplit(dsn)
+        _ = parsed.port
+    except ValueError:
+        pass
+    else:
+        if "@" in parsed.query:
+            return dsn
+    return f"postgresql://{quote(user_info, safe=':%')}@{address}"
 
 
 async def get_pool() -> asyncpg.Pool:
-    """Get or create the connection pool"""
+    """Initialize one pool lazily, including when tools start concurrently."""
     global _pool
-    if _pool is None:
-        config = get_db_config()
-        _pool = await asyncpg.create_pool(
-            host=config.host,
-            port=config.port,
-            database=config.database,
-            user=config.user,
-            password=config.password,
-            min_size=1,
-            max_size=10,
-        )
-    return _pool
+    async with _pool_lock:
+        if _pool is None:
+            _pool = await asyncpg.create_pool(
+                **_connection_parameters(),
+                min_size=0,
+                max_size=10,
+                timeout=QUERY_TIMEOUT_SECONDS,
+                command_timeout=QUERY_TIMEOUT_SECONDS,
+                server_settings={
+                    "default_transaction_read_only": "on",
+                    "statement_timeout": str(QUERY_TIMEOUT_SECONDS * 1000),
+                    "TimeZone": "Asia/Shanghai",
+                },
+            )
+        return _pool
 
 
-async def close_pool():
-    """Close the connection pool"""
+async def close_pool() -> None:
     global _pool
-    if _pool is not None:
-        await _pool.close()
-        _pool = None
+    async with _pool_lock:
+        if _pool is not None:
+            pool, _pool = _pool, None
+            try:
+                await asyncio.wait_for(pool.close(), timeout=QUERY_TIMEOUT_SECONDS)
+            except TimeoutError:
+                pool.terminate()
 
 
 @asynccontextmanager
-async def get_db_connection() -> AsyncGenerator[asyncpg.Connection, None]:
-    """Get a connection from the pool"""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        yield conn
+async def get_db_connection() -> AsyncIterator[asyncpg.Connection]:
+    """Bound the complete acquisition and query, including the wait for a pool slot."""
+    try:
+        async with asyncio.timeout(QUERY_TIMEOUT_SECONDS):
+            pool = await get_pool()
+            async with pool.acquire(timeout=QUERY_TIMEOUT_SECONDS) as conn:
+                yield conn
+    except (TimeoutError, asyncpg.QueryCanceledError):
+        raise ToolError("报表查询达到 30 秒超时，请缩小查询范围后重试。") from None
+    except (asyncpg.PostgresError, asyncpg.InterfaceError, OSError, ValueError) as exc:
+        logger.warning("报表数据源错误：%s", type(exc).__name__)
+        raise ToolError(
+            "无法读取报表数据，请检查数据库连接、数据表和读取权限。"
+        ) from None
